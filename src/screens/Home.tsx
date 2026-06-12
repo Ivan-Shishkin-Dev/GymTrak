@@ -1,37 +1,33 @@
-import { useMemo } from 'react'
+import { useState, useRef } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
+import { format } from 'date-fns'
 import { db } from '@/db/db'
-import { startSession } from '@/lib/actions'
-import { fmtVolumeCompact, weekdayShort } from '@/lib/format'
-import {
-  dayOfRotationLabel,
-  exercisePreview,
-  isRestDay,
-  nextDay,
-  todaysDay,
-} from '@/lib/rotation'
-import {
-  heatmapColumns,
-  latestPR,
-  sessionsThisWeek,
-  streakWeeks,
-  volumeLast7Days,
-} from '@/lib/stats'
-import { Heatmap } from '@/components/Heatmap'
+import { startSession, addNote, deleteNote } from '@/lib/actions'
+import { dayOfRotationLabel, nextInCycle } from '@/lib/rotation'
 import { ProgressRing } from '@/components/ProgressRing'
-import { PlusGlyph } from '@/components/icons'
-import type { Exercise } from '@/db/types'
+import type { Exercise, Note } from '@/db/types'
 
 export function Home() {
   const navigate = useNavigate()
+  const [overrideId, setOverrideId] = useState<number | null>(null)
+  const [noteText, setNoteText] = useState('')
+  const inputRef = useRef<HTMLInputElement>(null)
+
   const days = useLiveQuery(() => db.days.orderBy('id').toArray(), [], [])
   const sessions = useLiveQuery(() => db.sessions.toArray(), [], [])
-  const bodyWeight = useLiveQuery(() => db.bodyWeight.toArray(), [], [])
-  const prs = useLiveQuery(() => db.prs.toArray(), [], [])
+  const notes = useLiveQuery(
+    () => db.notes.orderBy('createdAt').reverse().toArray(),
+    [],
+    [] as Note[],
+  )
 
-  const day = useMemo(() => todaysDay(days), [days])
-  const next = useMemo(() => nextDay(days), [days])
+  const autoPicked = nextInCycle(days, sessions)
+  const day =
+    overrideId != null
+      ? (days.find((d) => d.id === overrideId) ?? autoPicked)
+      : autoPicked
+
   const exercises = useLiveQuery(
     async () => {
       if (!day) return [] as Exercise[]
@@ -41,16 +37,8 @@ export function Home() {
     [] as Exercise[],
   )
 
-  const rest = isRestDay()
-  const doneThisWeek = sessionsThisWeek(sessions)
-  const ringPct = Math.round((doneThisWeek / 6) * 100)
-  const streak = streakWeeks(sessions)
-  const vol7 = volumeLast7Days(sessions)
-  const bw = bodyWeight.length
-    ? [...bodyWeight].sort((a, b) => a.date.localeCompare(b.date)).at(-1)!.lbs
-    : null
-  const pr = latestPR(prs)
-  const heat = useMemo(() => heatmapColumns(sessions), [sessions])
+  const ringPct = day ? Math.round((day.id / 6) * 100) : 0
+  const visibleNotes = (notes ?? []).filter((n) => !n.deleted)
 
   async function start() {
     if (!day) return
@@ -59,43 +47,78 @@ export function Home() {
     navigate('/log')
   }
 
+  async function handleAddNote() {
+    if (!noteText.trim()) return
+    await addNote(noteText)
+    setNoteText('')
+    inputRef.current?.focus()
+  }
+
+  function handleNoteKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === 'Enter') handleAddNote()
+  }
+
   return (
     <div className="screen">
-      {/* Header */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '6px 0 8px',
-        }}
-      >
-        <div className="screen-title" style={{ padding: 0 }}>
-          Workouts
-        </div>
-        {!rest && (
-          <button
-            onClick={start}
-            aria-label="Start today's workout"
-            className="card tap"
+      <div className="screen-title">Workouts</div>
+
+      {/* ── Day picker ─────────────────────────────────────────────────── */}
+      {days.length > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            gap: 8,
+            flexWrap: 'wrap',
+            marginBottom: 4,
+          }}
+        >
+          {days.map((d) => {
+            const isSelected =
+              overrideId != null ? d.id === overrideId : d.id === autoPicked?.id
+            return (
+              <button
+                key={d.id}
+                className="tap"
+                onClick={() => setOverrideId(d.id === autoPicked?.id ? null : d.id)}
+                style={{
+                  height: 34,
+                  minWidth: 34,
+                  paddingInline: 12,
+                  borderRadius: 17,
+                  border: isSelected
+                    ? '1px solid var(--color-volt)'
+                    : '1px solid var(--color-pill-border)',
+                  background: isSelected ? 'var(--color-volt-tint)' : 'transparent',
+                  color: isSelected ? 'var(--color-volt)' : 'var(--color-sub)',
+                  fontSize: 13,
+                  fontWeight: isSelected ? 700 : 500,
+                  cursor: 'pointer',
+                  fontFamily: 'var(--font-mono)',
+                  letterSpacing: '0.05em',
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                {d.id}
+              </button>
+            )
+          })}
+          <span
             style={{
-              width: 44,
-              height: 44,
-              borderRadius: '50%',
-              borderColor: 'var(--color-pill-border)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'var(--color-d9)',
+              alignSelf: 'center',
+              fontSize: 11,
+              color: 'var(--color-dim)',
+              fontFamily: 'var(--font-mono)',
+              letterSpacing: '0.06em',
+              marginLeft: 2,
             }}
           >
-            <PlusGlyph />
-          </button>
-        )}
-      </div>
+            PICK DAY
+          </span>
+        </div>
+      )}
 
-      {/* Hero */}
-      {day && !rest ? (
+      {/* ── Hero card ──────────────────────────────────────────────────── */}
+      {day && (
         <div
           className="card"
           style={{
@@ -116,28 +139,92 @@ export function Home() {
           >
             {dayOfRotationLabel(day)}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+
+          {/* name + ring row */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 18 }}>
             <ProgressRing pct={ringPct}>
-              <span style={{ fontSize: 22, fontWeight: 680 }}>{doneThisWeek}</span>
+              <span style={{ fontSize: 22, fontWeight: 680 }}>{day.id}</span>
             </ProgressRing>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
               <div
                 style={{
                   fontSize: 27,
                   fontWeight: 740,
                   letterSpacing: '-0.02em',
                   color: 'var(--color-text)',
+                  lineHeight: 1.1,
                 }}
               >
                 {day.name}
               </div>
-              <div style={{ fontSize: 13.5, color: 'var(--color-sub)' }}>
-                {exercisePreview(exercises.map((e) => e.name))}
+              <div style={{ fontSize: 13, color: 'var(--color-sub)' }}>
+                {day.focus}
               </div>
             </div>
           </div>
+
+          {/* bulleted exercise list */}
+          {exercises.length > 0 && (
+            <ul
+              style={{
+                listStyle: 'none',
+                padding: 0,
+                margin: 0,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 8,
+              }}
+            >
+              {exercises.map((ex) => (
+                <li
+                  key={ex.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'baseline',
+                    gap: 8,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 5,
+                      height: 5,
+                      borderRadius: '50%',
+                      background: 'var(--color-volt)',
+                      flexShrink: 0,
+                      marginTop: 2,
+                      alignSelf: 'center',
+                    }}
+                  />
+                  <span
+                    style={{
+                      fontSize: 14,
+                      color: 'var(--color-text)',
+                      lineHeight: 1.35,
+                    }}
+                  >
+                    {ex.name}
+                  </span>
+                  {ex.libLoad && (
+                    <span
+                      style={{
+                        fontSize: 12,
+                        color: 'var(--color-dim)',
+                        fontFamily: 'var(--font-mono)',
+                        marginLeft: 'auto',
+                        flexShrink: 0,
+                      }}
+                    >
+                      {ex.libLoad}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+
           <button
             onClick={start}
+            aria-label="Start workout"
             className="tap"
             style={{
               height: 52,
@@ -150,162 +237,156 @@ export function Home() {
               fontSize: 16,
               fontWeight: 700,
               border: 'none',
+              cursor: 'pointer',
             }}
           >
             Start workout
           </button>
         </div>
-      ) : (
-        <div
-          className="card"
-          style={{
-            borderRadius: 30,
-            padding: 24,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 8,
-          }}
-        >
-          <div
-            style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: 11,
-              letterSpacing: '0.12em',
-              color: 'var(--color-volt)',
-            }}
-          >
-            REST DAY
-          </div>
-          <div style={{ fontSize: 27, fontWeight: 740, letterSpacing: '-0.02em' }}>
-            Recover
-          </div>
-          <div style={{ fontSize: 13.5, color: 'var(--color-sub)' }}>
-            Next: {next?.name ?? '—'}
-          </div>
-        </div>
       )}
 
-      {/* Stat grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-        <StatCard
-          value={bw != null ? String(Math.round(bw)) : '—'}
-          unit="lbs"
-          label="Body weight · today"
-          onClick={() => navigate('/progress')}
-        />
-        <StatCard
-          value={fmtVolumeCompact(vol7)}
-          unit="lbs"
-          label="Volume · 7 days"
-          onClick={() => navigate('/progress')}
-        />
-      </div>
-
-      {/* Consistency */}
+      {/* ── Notes card ─────────────────────────────────────────────────── */}
       <div
-        className="card tap"
-        onClick={() => navigate('/history')}
+        className="card"
         style={{
           borderRadius: 26,
           padding: 20,
           display: 'flex',
           flexDirection: 'column',
-          gap: 16,
+          gap: 14,
         }}
       >
         <div
           style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'baseline',
+            fontFamily: 'var(--font-mono)',
+            fontSize: 11,
+            letterSpacing: '0.12em',
+            color: 'var(--color-sub)',
           }}
         >
-          <div style={{ fontSize: 15, fontWeight: 640 }}>Consistency</div>
-          <div style={{ fontSize: 12, color: 'var(--color-sub)' }}>
-            {streak}-week streak{next ? ` · next: ${next.name}` : ''}
-          </div>
+          NOTES
         </div>
-        <Heatmap columns={heat} tint="volt" />
+
+        {/* input row */}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <input
+            ref={inputRef}
+            value={noteText}
+            onChange={(e) => setNoteText(e.target.value)}
+            onKeyDown={handleNoteKeyDown}
+            placeholder="Add a note…"
+            style={{
+              flex: 1,
+              background: 'var(--color-bg)',
+              border: '1px solid var(--color-pill-border)',
+              borderRadius: 14,
+              color: 'var(--color-text)',
+              padding: '11px 14px',
+              fontSize: 14,
+              outline: 'none',
+              fontFamily: 'inherit',
+            }}
+          />
+          <button
+            className="tap"
+            onClick={handleAddNote}
+            disabled={!noteText.trim()}
+            style={{
+              height: 40,
+              paddingInline: 16,
+              borderRadius: 20,
+              background: noteText.trim() ? 'var(--color-volt)' : 'var(--color-card-border)',
+              color: noteText.trim() ? 'var(--color-on-volt)' : 'var(--color-dim)',
+              border: 'none',
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: noteText.trim() ? 'pointer' : 'default',
+              flexShrink: 0,
+              transition: 'background 0.15s ease, color 0.15s ease',
+            }}
+          >
+            Add
+          </button>
+        </div>
+
+        {/* note list */}
+        {visibleNotes.length > 0 && (
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 0,
+            }}
+          >
+            {visibleNotes.map((note, i) => (
+              <div
+                key={note.id}
+                style={{
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: 10,
+                  paddingBlock: 12,
+                  borderTop:
+                    i === 0 ? '1px solid var(--color-separator)' : undefined,
+                  borderBottom: '1px solid var(--color-separator)',
+                }}
+              >
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <span
+                    style={{
+                      fontSize: 14,
+                      color: 'var(--color-text)',
+                      lineHeight: 1.4,
+                    }}
+                  >
+                    {note.text}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      color: 'var(--color-dim)',
+                      fontFamily: 'var(--font-mono)',
+                    }}
+                  >
+                    {format(new Date(note.createdAt), 'MMM d, yyyy')}
+                  </span>
+                </div>
+                <button
+                  className="tap"
+                  onClick={() => deleteNote(note.id)}
+                  aria-label="Delete note"
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--color-faint)',
+                    cursor: 'pointer',
+                    padding: '2px 4px',
+                    fontSize: 16,
+                    lineHeight: 1,
+                    flexShrink: 0,
+                    marginTop: 1,
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {visibleNotes.length === 0 && (
+          <div
+            style={{
+              fontSize: 13,
+              color: 'var(--color-dim)',
+              textAlign: 'center',
+              paddingBlock: 8,
+            }}
+          >
+            No notes yet
+          </div>
+        )}
       </div>
-
-      {/* Latest PR */}
-      {pr && (
-        <div
-          className="card tap"
-          onClick={() => navigate('/progress')}
-          style={{
-            borderRadius: 26,
-            padding: '16px 20px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-          }}
-        >
-          <PRChip />
-          <div style={{ flex: 1, fontSize: 14, fontWeight: 560 }}>
-            {pr.name} {pr.load}
-          </div>
-          <div style={{ fontSize: 13, color: 'var(--color-sub)' }}>
-            {weekdayShort(pr.date)}
-          </div>
-        </div>
-      )}
     </div>
   )
 }
-
-function StatCard({
-  value,
-  unit,
-  label,
-  onClick,
-}: {
-  value: string
-  unit: string
-  label: string
-  onClick: () => void
-}) {
-  return (
-    <div
-      className="card tap"
-      onClick={onClick}
-      style={{
-        borderRadius: 26,
-        padding: 18,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 14,
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
-        <div
-          className="tabular-nums"
-          style={{ fontSize: 28, fontWeight: 720, letterSpacing: '-0.02em' }}
-        >
-          {value}
-        </div>
-        <div style={{ fontSize: 13, color: 'var(--color-sub)' }}>{unit}</div>
-      </div>
-      <div style={{ fontSize: 13, color: 'var(--color-sub)' }}>{label}</div>
-    </div>
-  )
-}
-
-export function PRChip() {
-  return (
-    <div
-      style={{
-        fontSize: 10,
-        fontWeight: 800,
-        letterSpacing: '0.08em',
-        color: 'var(--color-on-volt)',
-        background: 'var(--color-volt)',
-        borderRadius: 6,
-        padding: '3px 6px',
-      }}
-    >
-      PR
-    </div>
-  )
-}
-

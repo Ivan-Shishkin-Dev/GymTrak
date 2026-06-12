@@ -46,7 +46,6 @@ export async function startSession(
       startedAt: now,
       finishedAt: null,
       durationSec: null,
-      totalVolume: null,
       updatedAt: now,
     })
     await db.sets.bulkAdd(sets)
@@ -67,30 +66,124 @@ export async function toggleSet(setId: string): Promise<boolean> {
   return nowDone
 }
 
+/** Set (or clear) the free-text comment on a set — the note added after a set. */
+export async function setSetComment(setId: string, comment: string): Promise<void> {
+  await db.sets.update(setId, {
+    comment: comment.trim() || undefined,
+    updatedAt: Date.now(),
+  })
+}
+
+/* ── Home notepad ────────────────────────────────────────────────────────── */
+
+/** Add a free-text training note. No-op on empty text. */
+export async function addNote(text: string): Promise<void> {
+  const trimmed = text.trim()
+  if (!trimmed) return
+  const now = Date.now()
+  await db.notes.add({ id: uid(), text: trimmed, createdAt: now, updatedAt: now })
+}
+
+/** Edit a note's text in place. */
+export async function updateNote(id: string, text: string): Promise<void> {
+  await db.notes.update(id, { text: text.trim(), updatedAt: Date.now() })
+}
+
+/** Soft-delete a note (kept for sync, filtered out everywhere). */
+export async function deleteNote(id: string): Promise<void> {
+  await db.notes.update(id, { deleted: true, updatedAt: Date.now() })
+}
+
+/* ── Personal records ────────────────────────────────────────────────────── */
+
+/** Log a PR with the exact moment it was hit (`at` → both date and time). */
+export async function addPR(
+  lift: string,
+  value: string,
+  at: number = Date.now(),
+): Promise<void> {
+  const l = lift.trim()
+  const v = value.trim()
+  if (!l || !v) return
+  const now = Date.now()
+  await db.prs.add({
+    id: uid(),
+    lift: l,
+    value: v,
+    at,
+    date: dateKey(new Date(at)),
+    updatedAt: now,
+  })
+}
+
+/** Soft-delete a PR. */
+export async function deletePR(id: string): Promise<void> {
+  await db.prs.update(id, { deleted: true, updatedAt: Date.now() })
+}
+
+/* ── Library editing ─────────────────────────────────────────────────────── */
+
+/** Rename / re-focus a rotation day. */
+export async function updateDay(
+  id: number,
+  patch: Partial<Pick<Day, 'name' | 'focus'>>,
+): Promise<void> {
+  await db.days.update(id, patch)
+}
+
+/** Patch an exercise's editable fields (name / sets / load / reps / note). */
+export async function updateExercise(
+  id: string,
+  patch: Partial<Pick<Exercise, 'name' | 'sets' | 'weight' | 'reps' | 'note' | 'libLoad'>>,
+): Promise<void> {
+  await db.exercises.update(id, { ...patch, updatedAt: Date.now() })
+}
+
+/** Append a new exercise to a day, ordered after the current last one. */
+export async function addExercise(
+  dayId: number,
+  partial?: Partial<Omit<Exercise, 'id' | 'dayId' | 'order' | 'updatedAt'>>,
+): Promise<string> {
+  const existing = await db.exercises.where('dayId').equals(dayId).toArray()
+  const order = existing.reduce((m, e) => Math.max(m, e.order), 0) + 1
+  const id = uid()
+  await db.exercises.add({
+    id,
+    dayId,
+    order,
+    name: partial?.name ?? 'New exercise',
+    sets: partial?.sets ?? 2,
+    weight: partial?.weight ?? '',
+    reps: partial?.reps ?? '× 6',
+    note: partial?.note ?? '',
+    libLoad: partial?.libLoad ?? '',
+    updatedAt: Date.now(),
+  })
+  return id
+}
+
+/** Remove an exercise from the library. */
+export async function deleteExercise(id: string): Promise<void> {
+  await db.exercises.delete(id)
+}
+
 /** The single open (unfinished) session, if any. */
 export async function getActiveSession() {
   const all = await db.sessions.toArray()
   return all.find((s) => s.finishedAt == null && !s.deleted)
 }
 
-function volumeOf(sets: WorkoutSet[]): number {
-  return sets
-    .filter((s) => s.completedAt != null && s.weightNum != null && s.repsNum != null)
-    .reduce((sum, s) => sum + (s.weightNum as number) * (s.repsNum as number), 0)
-}
-
 /**
- * Persist a finished session: duration, computed volume, and any new PRs;
- * incomplete (un-ticked) sets are removed so history reflects what was done.
+ * Persist a finished session: duration and computed volume; incomplete
+ * (un-ticked) sets are removed so history reflects what was done.
  */
 export async function finishSession(sessionId: string): Promise<void> {
   const session = await db.sessions.get(sessionId)
   if (!session) return
   const sets = await db.sets.where('sessionId').equals(sessionId).toArray()
-  const done = sets.filter((s) => s.completedAt != null)
   const now = Date.now()
 
-  await db.transaction('rw', db.sessions, db.sets, db.prs, async () => {
+  await db.transaction('rw', db.sessions, db.sets, async () => {
     // drop sets that weren't completed
     const undone = sets.filter((s) => s.completedAt == null).map((s) => s.id)
     if (undone.length) await db.sets.bulkDelete(undone)
@@ -98,49 +191,7 @@ export async function finishSession(sessionId: string): Promise<void> {
     await db.sessions.update(sessionId, {
       finishedAt: now,
       durationSec: Math.round((now - session.startedAt) / 1000),
-      totalVolume: volumeOf(done),
       updatedAt: now,
     })
-
-    await updatePRs(done, now)
   })
-}
-
-/** Naive PR detection: a completed set beats the stored best for its exercise. */
-async function updatePRs(done: WorkoutSet[], now: number): Promise<void> {
-  // best numeric set per exercise this session
-  const best = new Map<string, WorkoutSet>()
-  for (const s of done) {
-    if (s.weightNum == null) continue
-    const cur = best.get(s.exerciseName)
-    if (
-      !cur ||
-      (s.weightNum as number) > (cur.weightNum as number) ||
-      ((s.weightNum as number) === (cur.weightNum as number) &&
-        (s.repsNum ?? 0) > (cur.repsNum ?? 0))
-    ) {
-      best.set(s.exerciseName, s)
-    }
-  }
-
-  const existing = await db.prs.toArray()
-  for (const [name, s] of best) {
-    const prior = existing.find((p) => p.name === name)
-    const priorWeight = prior ? parseLoad(prior.load.split('×')[0]) : null
-    const beats = priorWeight == null || (s.weightNum as number) > priorWeight
-    if (!beats) continue
-    const load = `${s.weight.replace(/\s*lb$/, '')} ${s.reps}`.trim()
-    if (prior) {
-      await db.prs.update(prior.id, { load, date: dateKey(new Date()), updatedAt: now })
-    } else {
-      await db.prs.add({
-        id: uid(),
-        exerciseId: s.exerciseId,
-        name,
-        load,
-        date: dateKey(new Date()),
-        updatedAt: now,
-      })
-    }
-  }
 }

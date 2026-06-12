@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
 import { db } from '@/db/db'
-import { finishSession, toggleSet } from '@/lib/actions'
+import { finishSession, toggleSet, setSetComment } from '@/lib/actions'
 import { fmtClock } from '@/lib/format'
 import { useRestTimer } from '@/hooks/useRestTimer'
 import { BackChevron } from '@/components/icons'
@@ -12,6 +12,9 @@ export function Log() {
   const navigate = useNavigate()
   const rest = useRestTimer()
   const [now, setNow] = useState(() => Date.now())
+  // which set is currently showing its comment input, and the draft text
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null)
+  const [commentDraft, setCommentDraft] = useState('')
 
   const open = useLiveQuery(
     () => db.sessions.filter((s) => s.finishedAt == null && !s.deleted).toArray(),
@@ -69,6 +72,18 @@ export function Log() {
   async function onToggle(id: string) {
     const nowDone = await toggleSet(id)
     if (nowDone) rest.start()
+  }
+
+  function openComment(e: React.MouseEvent, st: WorkoutSet) {
+    e.stopPropagation()
+    setEditingCommentId(st.id)
+    setCommentDraft(st.comment ?? '')
+  }
+
+  async function commitComment(setId: string) {
+    await setSetComment(setId, commentDraft)
+    setEditingCommentId(null)
+    setCommentDraft('')
   }
 
   async function onFinish() {
@@ -170,50 +185,143 @@ export function Log() {
             <div style={{ display: 'flex', flexDirection: 'column' }}>
               {exSets.map((st, i) => {
                 const isDone = st.completedAt != null
+                const isEditingThis = editingCommentId === st.id
+                const hasComment = st.comment && st.comment.trim().length > 0
                 return (
-                  <div
-                    key={st.id}
-                    onClick={() => onToggle(st.id)}
-                    className="tap"
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 12,
-                      height: 46,
-                      opacity: isDone ? 0.45 : 1,
-                    }}
-                  >
-                    <div style={{ width: 42, fontSize: 12, color: 'var(--color-sub)' }}>
-                      Set {i + 1}
-                    </div>
+                  <div key={st.id}>
+                    {/* Toggle row — tapping anywhere here marks the set done/undone */}
                     <div
-                      className="tabular-nums"
-                      style={{ flex: 1, fontSize: 16, fontWeight: 620 }}
-                    >
-                      {st.weight}
-                    </div>
-                    <div
-                      className="tabular-nums"
-                      style={{ fontSize: 14, color: 'var(--color-sub)' }}
-                    >
-                      {st.reps}
-                    </div>
-                    <div
+                      onClick={() => onToggle(st.id)}
+                      className="tap"
                       style={{
-                        width: 28,
-                        height: 28,
-                        borderRadius: '50%',
-                        border: `1.5px solid ${isDone ? 'var(--color-volt)' : 'var(--color-check-border)'}`,
-                        background: isDone ? 'var(--color-volt)' : 'transparent',
                         display: 'flex',
                         alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: 14,
-                        fontWeight: 800,
-                        color: isDone ? 'var(--color-on-volt)' : 'transparent',
+                        gap: 12,
+                        height: 46,
+                        opacity: isDone ? 0.45 : 1,
                       }}
                     >
-                      ✓
+                      <div style={{ width: 42, fontSize: 12, color: 'var(--color-sub)' }}>
+                        Set {i + 1}
+                      </div>
+                      <div
+                        className="tabular-nums"
+                        style={{ flex: 1, fontSize: 16, fontWeight: 620 }}
+                      >
+                        {st.weight}
+                      </div>
+                      <div
+                        className="tabular-nums"
+                        style={{ fontSize: 14, color: 'var(--color-sub)' }}
+                      >
+                        {st.reps}
+                      </div>
+                      <div
+                        style={{
+                          width: 28,
+                          height: 28,
+                          borderRadius: '50%',
+                          border: `1.5px solid ${isDone ? 'var(--color-volt)' : 'var(--color-check-border)'}`,
+                          background: isDone ? 'var(--color-volt)' : 'transparent',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: 14,
+                          fontWeight: 800,
+                          color: isDone ? 'var(--color-on-volt)' : 'transparent',
+                        }}
+                      >
+                        ✓
+                      </div>
+                    </div>
+
+                    {/* Comment sub-row — stops propagation so it never fires onToggle */}
+                    <div
+                      style={{ paddingLeft: 54, paddingBottom: isEditingThis || hasComment ? 10 : 0 }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {isEditingThis ? (
+                        <input
+                          autoFocus
+                          value={commentDraft}
+                          placeholder="Add a note…"
+                          style={{
+                            width: '100%',
+                            background: 'var(--color-bg)',
+                            border: '1px solid var(--color-pill-border)',
+                            borderRadius: 10,
+                            color: 'var(--color-text)',
+                            padding: '8px 10px',
+                            fontSize: 13,
+                            outline: 'none',
+                            boxSizing: 'border-box',
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => {
+                            e.stopPropagation()
+                            setCommentDraft(e.target.value)
+                          }}
+                          onKeyDown={(e) => {
+                            e.stopPropagation()
+                            if (e.key === 'Enter') commitComment(st.id)
+                            if (e.key === 'Escape') {
+                              setEditingCommentId(null)
+                              setCommentDraft('')
+                            }
+                          }}
+                          onBlur={() => commitComment(st.id)}
+                        />
+                      ) : hasComment ? (
+                        <div
+                          onClick={(e) => openComment(e, st)}
+                          className="tap"
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 6,
+                            cursor: 'text',
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: 2,
+                              alignSelf: 'stretch',
+                              borderRadius: 1,
+                              background: 'var(--color-dim)',
+                              flexShrink: 0,
+                            }}
+                          />
+                          <div
+                            style={{
+                              fontSize: 12,
+                              color: 'var(--color-sub)',
+                              lineHeight: 1.4,
+                            }}
+                          >
+                            {st.comment}
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={(e) => openComment(e, st)}
+                          className="tap"
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            padding: 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            color: 'var(--color-faint)',
+                            fontSize: 11.5,
+                            cursor: 'pointer',
+                            marginBottom: 6,
+                          }}
+                        >
+                          <span style={{ fontSize: 13, lineHeight: 1 }}>+</span>
+                          <span>note</span>
+                        </button>
+                      )}
                     </div>
                   </div>
                 )

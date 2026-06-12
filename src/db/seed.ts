@@ -1,23 +1,16 @@
-import {
-  addDays,
-  getISODay,
-  startOfDay,
-  startOfWeek,
-  subDays,
-  subWeeks,
-} from 'date-fns'
+import { addDays, getISODay, startOfDay, startOfWeek, subWeeks } from 'date-fns'
 import { db, uid } from './db'
-import { dateKey } from '@/lib/format'
-import type { BodyWeight, Day, Exercise, PR, Session } from './types'
+import { dateKey, parseLoad, parseReps } from '@/lib/format'
+import type { Day, Exercise, Note, PR, Session, WorkoutSet } from './types'
 
-/* ── The split: 6 days, Mon–Sat ─────────────────────────────────────────── */
+/* ── The split: 6 days (Upper A → Lower C) ──────────────────────────────── */
 const DAYS: Day[] = [
-  { id: 1, name: 'Upper A', focus: 'Chest lean', weekday: 1 },
-  { id: 2, name: 'Lower A', focus: 'Quad', weekday: 2 },
-  { id: 3, name: 'Upper B', focus: 'Back + delt', weekday: 3 },
-  { id: 4, name: 'Lower B', focus: 'Ham', weekday: 4 },
-  { id: 5, name: 'Upper C', focus: 'Shoulder lean', weekday: 5 },
-  { id: 6, name: 'Lower C', focus: 'Quad', weekday: 6 },
+  { id: 1, name: 'Upper A', focus: 'Chest lean' },
+  { id: 2, name: 'Lower A', focus: 'Quad' },
+  { id: 3, name: 'Upper B', focus: 'Back + delt' },
+  { id: 4, name: 'Lower B', focus: 'Ham' },
+  { id: 5, name: 'Upper C', focus: 'Shoulder lean' },
+  { id: 6, name: 'Lower C', focus: 'Quad' },
 ]
 
 /** [name, sets, weight, reps, note, libLoad] */
@@ -105,65 +98,118 @@ function rng(seed: number) {
   }
 }
 
+/* Realistic post-set notes, sprinkled onto a fraction of historical sets so the
+ * History detail view ("what I hit + my comments") has something to show. */
+const COMMENTS = [
+  'Felt strong — add weight next time',
+  'Last rep was a grind',
+  'Left elbow a little cranky',
+  'Easy, bump it up',
+  'Good depth, controlled',
+  'Grip gave out before the muscle did',
+  'Clean reps, video looked solid',
+  'Lower back tight — kept it conservative',
+  'Tempo on point today',
+  'Cut it one short, shoulder pinch',
+]
+
 /**
- * Demo history so History/Progress aren't empty on first launch:
- * sessions Mon–Sat for the past ~11 weeks (this week's past days always present;
- * older weeks occasionally miss one), a 12-week body-weight trend, and a few PRs.
- * Anchored to `now`, so it stays fresh whenever the app is first opened.
+ * Demo history so History isn't empty on first launch: finished sessions for the
+ * past ~11 weeks (this week's past days always present; older weeks occasionally
+ * miss one), each with its completed sets — some carrying a post-set comment.
+ * The day rotation is a pure 1→6 cycle. Anchored to `now` so it stays fresh.
  */
 function buildHistory(now: Date) {
   const rand = rng(20260612)
   const sessions: Session[] = []
+  const sets: WorkoutSet[] = []
   const weekMonday = startOfWeek(now, { weekStartsOn: 1 })
 
   // 11 weeks back up to *yesterday* — today stays unlogged so it's the pending hero
   const start = subWeeks(weekMonday, 11)
   const todayMidnight = startOfDay(now)
+  let cyc = 0
   for (let d = new Date(start); d < todayMidnight; d = addDays(d, 1)) {
     const wd = getISODay(d) // 1..7
-    if (wd === 7) continue // Sunday rest
+    if (wd === 7) continue // demo cadence: no session on the 7th day
     const thisWeek = d >= weekMonday
     // older weeks: ~12% chance of a missed session; current week: never miss
     if (!thisWeek && rand() < 0.12) continue
-    const vol = Math.round(7000 + rand() * 6000)
     const dur = Math.round(46 + rand() * 14) * 60
     const startedAt = d.getTime() + 18 * 3600 * 1000
+    const sessionId = uid()
+    const dayId = (cyc % 6) + 1 // pure 1→6 rotation cycle
     sessions.push({
-      id: uid(),
-      dayId: wd, // weekday == rotation order
+      id: sessionId,
+      dayId,
       date: dateKey(d),
       startedAt,
       finishedAt: startedAt + dur * 1000,
       durationSec: dur,
-      totalVolume: vol,
       updatedAt: startedAt,
     })
+
+    // completed sets for this session, straight from the day's catalog
+    let offset = 60
+    for (const [name, setCount, weight, reps] of CATALOG[dayId]) {
+      for (let i = 0; i < setCount; i++) {
+        offset += 150 + Math.round(rand() * 120)
+        const hasComment = rand() < 0.16
+        sets.push({
+          id: uid(),
+          sessionId,
+          exerciseId: uid(), // synthetic — history groups by exerciseName
+          exerciseName: name,
+          setIndex: i,
+          weight,
+          reps,
+          weightNum: parseLoad(weight),
+          repsNum: parseReps(reps),
+          completedAt: startedAt + offset * 1000,
+          comment: hasComment
+            ? COMMENTS[Math.floor(rand() * COMMENTS.length)]
+            : undefined,
+          updatedAt: startedAt,
+        })
+      }
+    }
+    cyc++
   }
 
-  // Body weight: 12 weekly points trending 190.8 → 186.4 (a slow cut), plus today.
-  const bodyWeight: BodyWeight[] = []
-  for (let w = 11; w >= 0; w--) {
-    const day = subWeeks(now, w)
-    const base = 190.8 - (190.8 - 186.4) * ((11 - w) / 11)
-    const lbs = w === 0 ? 186.4 : Math.round((base + (rand() - 0.5) * 0.8) * 10) / 10
-    bodyWeight.push({ id: uid(), date: dateKey(day), lbs, updatedAt: day.getTime() })
+  return { sessions, sets }
+}
+
+/** A few starter notes for the Home notepad. */
+function buildNotes(now: Date): Note[] {
+  const base = now.getTime()
+  const day = 86_400_000
+  const mk = (text: string, daysAgo: number): Note => {
+    const t = base - daysAgo * day
+    return { id: uid(), text, createdAt: t, updatedAt: t }
   }
+  return [
+    mk('Deload paid off — top sets moved faster all week.', 3),
+    mk('Switching incline curls to a slight decline; the stretch feels better.', 8),
+    mk('Sleep has been rough — keep sessions to ~45 min on the bad days.', 15),
+  ]
+}
 
-  const prs: PR[] = [
-    { name: 'Bench', load: '230 × 3', day: 4 },
-    { name: 'Leg press', load: '6 pl +25 × 6', day: 3 },
-    { name: 'Dip', load: '+75 × 6', day: 7 },
-    { name: 'SLDL', load: '315 × 4', day: 8 },
-  ].map((p) => ({
-    id: uid(),
-    exerciseId: null,
-    name: p.name,
-    load: p.load,
-    date: dateKey(subDays(now, p.day)),
-    updatedAt: now.getTime(),
-  }))
-
-  return { sessions, bodyWeight, prs }
+/** A handful of logged PRs, each stamped with the moment it was hit. */
+function buildPRs(now: Date): PR[] {
+  const base = now.getTime()
+  const day = 86_400_000
+  const mk = (lift: string, value: string, daysAgo: number, hour: number): PR => {
+    const d = new Date(base - daysAgo * day)
+    d.setHours(hour, 14, 0, 0)
+    const at = d.getTime()
+    return { id: uid(), lift, value, at, date: dateKey(d), updatedAt: at }
+  }
+  return [
+    mk('Shoulder press', '85 × 5', 3, 17),
+    mk('Dip', '+90 × 5', 9, 18),
+    mk('SLDL', '315 × 6', 16, 19),
+    mk('Bench', '225 × 4', 34, 18),
+  ]
 }
 
 /**
@@ -176,16 +222,19 @@ export async function seedIfEmpty(): Promise<void> {
 
   const now = new Date()
   const exercises = buildExercises(now.getTime())
-  const { sessions, bodyWeight, prs } = buildHistory(now)
+  const { sessions, sets } = buildHistory(now)
+  const notes = buildNotes(now)
+  const prs = buildPRs(now)
 
   await db.transaction(
     'rw',
-    [db.days, db.exercises, db.sessions, db.bodyWeight, db.prs],
+    [db.days, db.exercises, db.sessions, db.sets, db.notes, db.prs],
     async () => {
       await db.days.bulkAdd(DAYS)
       await db.exercises.bulkAdd(exercises)
       await db.sessions.bulkAdd(sessions)
-      await db.bodyWeight.bulkAdd(bodyWeight)
+      await db.sets.bulkAdd(sets)
+      await db.notes.bulkAdd(notes)
       await db.prs.bulkAdd(prs)
     },
   )

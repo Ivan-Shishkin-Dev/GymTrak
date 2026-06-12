@@ -4,7 +4,7 @@
 // WebSocket (Node ≥ 21).
 //
 //   node scripts/shot.mjs            # screenshots / by default
-//   node scripts/shot.mjs / /history /progress /library /log
+//   node scripts/shot.mjs / /history /library /log
 //   SHOT_W=390 SHOT_H=844 SHOT_WAIT=2200 node scripts/shot.mjs /
 //
 // Output: .shots/<slug>.png. Dev server URL from $URL (default :5180).
@@ -124,7 +124,7 @@ try {
       await cdp.once('Page.loadEventFired')
       await sleep(WAIT)
       await evaluate(
-        `document.querySelector('[aria-label="Start today\\'s workout"]')?.click()`,
+        `document.querySelector('[aria-label="Start workout"]')?.click()`,
       )
       await sleep(1200)
       await evaluate(

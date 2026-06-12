@@ -1,40 +1,28 @@
-import { getISODay } from 'date-fns'
-import type { Day } from '@/db/types'
+import type { Day, Session } from '@/db/types'
 
 /**
- * The ULULUL rotation runs Mon–Sat (Upper A → Lower C); Sunday is rest.
- * A day's `weekday` is its ISO weekday (1=Mon … 6=Sat), which also equals its
- * rotation order (1..6), so today's day is found by today's ISO weekday.
+ * The ULULUL rotation is a fixed 6-day cycle (Upper A → Lower C). It advances
+ * by completion — the next workout is the one after your most recently logged
+ * session — so it never depends on the calendar weekday.
  */
 
-export function isRestDay(now = new Date()): boolean {
-  return getISODay(now) === 7 // Sunday
-}
+const finished = (s: Session) => s.finishedAt != null && !s.deleted
 
-/** Today's rotation day from the day list, or null on a rest day. */
-export function todaysDay(days: Day[], now = new Date()): Day | null {
-  const wd = getISODay(now)
-  return days.find((d) => d.weekday === wd) ?? null
-}
-
-/** The next training day after today (wraps Sun→Mon). */
-export function nextDay(days: Day[], now = new Date()): Day | null {
+/** The next workout in the cycle given logged sessions. Defaults to Day 1. */
+export function nextInCycle(days: Day[], sessions: Session[]): Day | null {
   if (!days.length) return null
-  const today = getISODay(now)
-  for (let i = 1; i <= 7; i++) {
-    const wd = ((today - 1 + i) % 7) + 1
-    const d = days.find((x) => x.weekday === wd)
-    if (d) return d
-  }
-  return null
+  const ordered = [...days].sort((a, b) => a.id - b.id)
+  const done = sessions.filter(finished)
+  if (!done.length) return ordered[0]
+  const last = done.reduce((a, b) => (b.startedAt > a.startedAt ? b : a))
+  const idx = ordered.findIndex((d) => d.id === last.dayId)
+  if (idx === -1) return ordered[0]
+  return ordered[(idx + 1) % ordered.length]
 }
 
-/** "FRIDAY — DAY 5 OF 6" micro label for the hero. */
-export function dayOfRotationLabel(day: Day, now = new Date()): string {
-  const weekday = now
-    .toLocaleDateString('en-US', { weekday: 'long' })
-    .toUpperCase()
-  return `${weekday} — DAY ${day.weekday} OF 6`
+/** "DAY 5 OF 6" micro label for the hero — position in the 6-day cycle. */
+export function dayOfRotationLabel(day: Day): string {
+  return `DAY ${day.id} OF 6`
 }
 
 /** "Dip · Pulldown · Press · Low row +3" — first 4 exercise short names + overflow. */

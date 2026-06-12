@@ -15,7 +15,6 @@ export const DaySchema = z.object({
   id: z.number().int(), // 1..6 — also the rotation order
   name: z.string(), // 'Upper C'
   focus: z.string(), // 'Shoulder lean'
-  weekday: z.number().int(), // ISO weekday: 1=Mon … 6=Sat
 })
 export type Day = z.infer<typeof DaySchema>
 
@@ -42,7 +41,6 @@ export const SessionSchema = z.object({
   startedAt: z.number(),
   finishedAt: z.number().nullable(),
   durationSec: z.number().nullable(),
-  totalVolume: z.number().nullable(),
   updatedAt: z.number(),
   deleted: z.boolean().optional(),
 })
@@ -60,26 +58,29 @@ export const WorkoutSetSchema = z.object({
   weightNum: z.number().nullable(), // numeric equivalent for volume; null for 'Max'/bodyweight
   repsNum: z.number().nullable(),
   completedAt: z.number().nullable(),
+  comment: z.string().optional(), // free note added after the set, shown in History
   updatedAt: z.number(),
 })
 export type WorkoutSet = z.infer<typeof WorkoutSetSchema>
 
-/** A body-weight reading. */
-export const BodyWeightSchema = z.object({
+/** A free-text note about training — the Home notepad. Newest first. */
+export const NoteSchema = z.object({
   id: z.string(),
-  date: z.string(), // 'yyyy-MM-dd'
-  lbs: z.number(),
+  text: z.string(),
+  createdAt: z.number(), // epoch ms
   updatedAt: z.number(),
+  deleted: z.boolean().optional(),
 })
-export type BodyWeight = z.infer<typeof BodyWeightSchema>
+export type Note = z.infer<typeof NoteSchema>
 
-/** A personal record. */
+/** A personal record, logged with the moment it was hit. */
 export const PRSchema = z.object({
   id: z.string(),
-  exerciseId: z.string().nullable(),
-  name: z.string(), // 'Bench'
-  load: z.string(), // '230 × 3'
-  date: z.string(), // 'yyyy-MM-dd'
+  lift: z.string(), // 'Bench', 'SLDL', 'Dip'…
+  value: z.string(), // free token: '225 × 4', '315 lb', '+90 × 5'
+  at: z.number(), // epoch ms — captures both the date and the time
+  date: z.string(), // local 'yyyy-MM-dd' (derived from `at`, for indexing/grouping)
   updatedAt: z.number(),
+  deleted: z.boolean().optional(),
 })
 export type PR = z.infer<typeof PRSchema>

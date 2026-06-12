@@ -3,13 +3,11 @@ import {
   HistoryIcon,
   HomeIcon,
   LibraryIcon,
-  ProgressIcon,
 } from './icons'
 
 const TABS = [
   { to: '/', Icon: HomeIcon, label: 'Home' },
   { to: '/history', Icon: HistoryIcon, label: 'History' },
-  { to: '/progress', Icon: ProgressIcon, label: 'Progress' },
   { to: '/library', Icon: LibraryIcon, label: 'Library' },
 ]
 

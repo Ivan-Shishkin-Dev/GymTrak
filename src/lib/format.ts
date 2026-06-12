@@ -8,20 +8,6 @@ export function fmtClock(totalSec: number): string {
   return `${m}:${sec < 10 ? '0' : ''}${sec}`
 }
 
-/** 61420 → "61,420 lb" */
-export function fmtVolume(n: number): string {
-  return `${Math.round(n).toLocaleString('en-US')} lb`
-}
-
-/** 61420 → "61.4k", 980 → "980" (the compact Home stat) */
-export function fmtVolumeCompact(n: number): string {
-  if (n >= 1000) {
-    const k = n / 1000
-    return `${k >= 100 ? Math.round(k) : k.toFixed(1)}k`
-  }
-  return String(Math.round(n))
-}
-
 /** Local 'yyyy-MM-dd' key for a Date. */
 export function dateKey(d: Date): string {
   return format(d, 'yyyy-MM-dd')
@@ -37,20 +23,9 @@ export function relativeWhen(isoDate: string, now = new Date()): string {
   return format(d, 'EEE MMM d') // Sat Jun 6
 }
 
-/** Short month-day, e.g. "Jun 8". Parses as local (avoids the UTC off-by-one). */
-export function shortDate(isoDate: string): string {
-  return format(parseISO(isoDate), 'MMM d')
-}
-
-/** Short weekday for a local date key, e.g. "Tue". */
-export function weekdayShort(isoDate: string): string {
-  return format(parseISO(isoDate), 'EEE')
-}
-
 /**
- * Parse a load token into a number for volume math.
- * Returns null for non-numeric machine loads ('Max', 'BW', 'heavy', '6 pl'…),
- * which are excluded from volume (owner's call — see README "Volume math").
+ * Parse a load token into a numeric load.
+ * Returns null for non-numeric machine loads ('Max', 'BW', 'heavy', '6 pl'…).
  */
 export function parseLoad(token: string): number | null {
   const cleaned = token.replace(/lb|lbs/gi, '').trim()

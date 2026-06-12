@@ -1,13 +1,16 @@
 # GymTrak — Workouts
 
 A personal, **offline-first, installable** workout tracker for a 6-day **ULULUL split**
-(Upper A → Lower C, Mon–Sat, Sunday rest). No accounts, no server: it runs entirely
+(Upper A → Lower C). No accounts, no server: it runs entirely
 in the browser, works with zero signal in a gym basement, and installs to the home
 screen like a native app.
 
-Core loop: open → today's session is front and center → start it → tick off prefilled
-sets (one tap each, loads carry over from last time) → finish. Plus History, Progress,
-and a Library of all six days.
+Core loop: open → the next workout in the cycle is front and center (override the pick with a
+day chip if you want a different one) → start it → tick off prefilled sets (one tap each, loads
+carry over from last time, jot a note on any set) → finish. The Home screen also has a plain
+notepad. History is a tappable calendar — tap a date to see what you hit and your per-set notes —
+plus a log of PRs (each stamped with the date and time it was hit). The Library of all six days is
+editable in place (rename days, edit/add/remove exercises).
 
 ## Stack
 
@@ -32,7 +35,7 @@ npm run preview      # serve the production build (SW active here)
 ```
 
 On first launch the app seeds your split (the six days + their exercises) plus some
-demo history so History/Progress aren't empty. The seed only runs when the DB is empty
+demo history so History isn't empty. The seed only runs when the DB is empty
 (`seedIfEmpty` in `src/db/seed.ts`); `resetAndReseed()` wipes and reseeds.
 
 ## Project structure
@@ -40,30 +43,30 @@ demo history so History/Progress aren't empty. The seed only runs when the DB is
 ```
 src/
   main.tsx              # entry: registers the SW, seeds, renders
-  App.tsx               # routes: / /history /progress /library (tabbed) + /log (full-screen)
+  App.tsx               # routes: / /history /library (tabbed) + /log (full-screen)
   index.css             # Tailwind + design tokens (@theme) + base component classes
   db/
     types.ts            # Zod schemas → inferred types (the record shapes)
     db.ts               # Dexie database + table indexes
     seed.ts             # the ULULUL catalog + demo history
   lib/
-    rotation.ts         # today's day, "DAY N OF 6", next day
-    format.ts           # clocks, volume, local-safe dates, load parsing
-    stats.ts            # volume, streak, heatmap, calendar, weekly bars, body-weight series
-    actions.ts          # start → toggle set → finish (volume + PR detection)
+    rotation.ts         # next workout in the cycle, "DAY N OF 6"
+    format.ts           # clocks, local-safe dates, load parsing
+    stats.ts            # month calendar + session-on-a-date lookup
+    actions.ts          # start → toggle set → finish; notes, PRs, set comments, library edits
   hooks/useRestTimer.ts # background-correct 90s rest countdown (end-timestamp based)
-  components/           # TabBar, Heatmap, ProgressRing, icons, AppLayout
-  screens/              # Home, Log, History, Progress, Library
+  components/           # TabBar, ProgressRing, icons, AppLayout
+  screens/              # Home, Log, History, Library
 docs/design-reference/  # the original design handoff (source of truth — see below)
 scripts/shot.mjs        # screenshot loop (drives headless Chrome, mobile viewport)
 ```
 
 ## Data model (Dexie / IndexedDB)
 
-`days` · `exercises` · `sessions` · `sets` · `bodyWeight` · `prs`. Every record carries a
-string UUID `id` and an `updatedAt` stamp, so the planned Supabase sync (last-write-wins)
-is a bolt-on rather than a rewrite. Volume sums numeric `weight × reps`; machine "Max"
-loads are excluded from volume (carried as the literal string).
+`days` · `exercises` · `sessions` · `sets` · `notes` · `prs`. Each set can carry a free-text
+`comment` (the note added after a set, surfaced in History). Every record carries a
+string UUID `id` and an `updatedAt` stamp — and `notes`/`prs` soft-delete via `deleted` — so the
+planned Supabase sync (last-write-wins) is a bolt-on rather than a rewrite.
 
 ## Offline & install
 
@@ -82,7 +85,7 @@ route at a phone viewport — the build → look → fix loop, no device needed:
 
 ```bash
 node scripts/shot.mjs                          # home
-node scripts/shot.mjs / /history /progress /library /log
+node scripts/shot.mjs / /history /library /log
 SHOT_W=430 SHOT_H=932 node scripts/shot.mjs /  # different viewport
 ```
 
@@ -99,7 +102,6 @@ prototype's runtime/bezel and are **not** part of this app.
 ## Known gaps (from the handoff — not built yet)
 
 - Editing weight/reps during a session (steppers) — sets are tick-only for now.
-- Body-weight quick-log input sheet.
 - Empty states / first-run onboarding.
 - Settings (rest duration is hard-coded to 90s).
 - Phase 2: Supabase sync/backup across devices.
