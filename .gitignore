@@ -1,0 +1,16 @@
+node_modules
+dist
+dist-ssr
+*.local
+.DS_Store
+dev-dist
+.vite
+*.tsbuildinfo
+
+# editor
+.vscode/*
+!.vscode/extensions.json
+.idea
+
+# screenshots from the verify loop
+/.shots

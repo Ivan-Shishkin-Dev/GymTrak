@@ -1,0 +1,101 @@
+@import 'tailwindcss';
+
+/* ── Design tokens (from design_handoff_workout_pwa/README.md) ──────────── */
+@theme {
+  --color-bg: #060607;
+  --color-card: #131316;
+  --color-card-border: rgba(255, 255, 255, 0.07);
+  --color-pill-border: rgba(255, 255, 255, 0.08);
+  --color-text: #f4f4f5;
+  --color-sub: #8e8e93;
+  --color-faint: #6f6f75;
+  --color-dim: #5a5a5f;
+  --color-idle: #56565c;
+  --color-future: #3d3d42;
+  --color-volt: #cdf463;
+  --color-on-volt: #15170a;
+  --color-volt-tint: rgba(205, 244, 99, 0.1);
+  --color-track: rgba(255, 255, 255, 0.1);
+  --color-ring-off: rgba(255, 255, 255, 0.13);
+  --color-check-border: rgba(255, 255, 255, 0.22);
+  --color-separator: rgba(255, 255, 255, 0.06);
+  --color-dot-off: rgba(255, 255, 255, 0.1);
+  --color-dot-on: rgba(255, 255, 255, 0.45);
+  --color-d9: #d9d9de;
+
+  --font-sans: -apple-system, 'SF Pro', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
+html {
+  background: var(--color-bg);
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+  text-rendering: optimizeLegibility;
+}
+
+/* Hide scrollbars — touch-first, matches the prototype */
+* {
+  scrollbar-width: none;
+}
+*::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+@layer components {
+  /* Phone-width frame, centered on desktop, full-bleed on a phone */
+  .app-frame {
+    position: relative;
+    width: 100%;
+    max-width: 460px;
+    height: 100dvh;
+    margin: 0 auto;
+    overflow: hidden;
+    background: var(--color-bg);
+  }
+
+  /* Scrollable full-screen view (Home / History / Progress / Library) */
+  .screen {
+    position: absolute;
+    inset: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: calc(74px + env(safe-area-inset-top)) 20px
+      calc(130px + env(safe-area-inset-bottom));
+  }
+
+  /* The standard near-black card with a 1px border — depth via border, no shadow */
+  .card {
+    background: var(--color-card);
+    border: 1px solid var(--color-card-border);
+  }
+
+  .screen-title {
+    font-size: 34px;
+    font-weight: 760;
+    letter-spacing: -0.02em;
+    color: var(--color-text);
+    padding: 6px 0 8px;
+  }
+
+  /* Tap feedback — touch-first, no hover */
+  .tap {
+    cursor: pointer;
+    transition: opacity 0.12s ease;
+  }
+  .tap:active {
+    opacity: 0.7;
+  }
+}
