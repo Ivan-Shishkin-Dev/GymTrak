@@ -18,17 +18,45 @@ export const DaySchema = z.object({
 })
 export type Day = z.infer<typeof DaySchema>
 
+/** One planned set's load — lets sets differ (e.g. a top set + back-offs). */
+export const SetRowSchema = z.object({
+  weight: z.string(), // load token: '+70 lb' | 'Max' | '225 lb'
+  reps: z.string(), // displayed as '× {reps}', e.g. '× 6'
+})
+export type SetRow = z.infer<typeof SetRowSchema>
+
+/**
+ * How an exercise's load is entered — the "kind" of weight, pinned per exercise
+ * so the notation can't drift set-to-set:
+ *   weight     — free-weight pounds (bench, dumbbells)        → "225 lb"
+ *   machine    — selectorized pin reading, or Max (+ extra)   → "10", "Max + 10"
+ *   plates     — plate count (+ extra lb)                     → "6 pl", "5 pl + 25"
+ *   bodyweight — bodyweight, optionally weighted/assisted     → "BW", "+70"
+ *   free       — anything else, verbatim                      → "wtd", "heavy"
+ * The grammar that parses/formats each lives in src/lib/load.ts.
+ */
+export const LoadTypeSchema = z.enum([
+  'weight',
+  'machine',
+  'plates',
+  'bodyweight',
+  'free',
+])
+export type LoadType = z.infer<typeof LoadTypeSchema>
+
 /** A prescribed exercise belonging to a day, with its carry-over load. */
 export const ExerciseSchema = z.object({
   id: z.string(),
   dayId: z.number().int(),
   order: z.number().int(),
   name: z.string(),
-  sets: z.number().int(), // default set count
-  weight: z.string(), // carry-over load token: '+70 lb' | 'Max' | '75 lb'
-  reps: z.string(), // displayed as '× {reps}', e.g. '× 6'
+  sets: z.number().int(), // set count (kept in sync with setRows.length)
+  weight: z.string(), // first set's load — fallback when setRows is absent
+  reps: z.string(), // first set's reps — fallback when setRows is absent
   note: z.string(), // log header note, e.g. '+80 × 6 → +70 × 6'
-  libLoad: z.string(), // library prescription tail, e.g. '+70 × 6'
+  libLoad: z.string(), // free-text description shown on the card, e.g. 'Heavy 3–4, top set + back-off'
+  setRows: z.array(SetRowSchema).optional(), // per-set loads; falls back to sets×weight/reps when absent
+  loadType: LoadTypeSchema.optional(), // how `weight` is entered; inferred from the string when absent
   updatedAt: z.number(),
 })
 export type Exercise = z.infer<typeof ExerciseSchema>
@@ -58,29 +86,6 @@ export const WorkoutSetSchema = z.object({
   weightNum: z.number().nullable(), // numeric equivalent for volume; null for 'Max'/bodyweight
   repsNum: z.number().nullable(),
   completedAt: z.number().nullable(),
-  comment: z.string().optional(), // free note added after the set, shown in History
   updatedAt: z.number(),
 })
 export type WorkoutSet = z.infer<typeof WorkoutSetSchema>
-
-/** A free-text note about training — the Home notepad. Newest first. */
-export const NoteSchema = z.object({
-  id: z.string(),
-  text: z.string(),
-  createdAt: z.number(), // epoch ms
-  updatedAt: z.number(),
-  deleted: z.boolean().optional(),
-})
-export type Note = z.infer<typeof NoteSchema>
-
-/** A personal record, logged with the moment it was hit. */
-export const PRSchema = z.object({
-  id: z.string(),
-  lift: z.string(), // 'Bench', 'SLDL', 'Dip'…
-  value: z.string(), // free token: '225 × 4', '315 lb', '+90 × 5'
-  at: z.number(), // epoch ms — captures both the date and the time
-  date: z.string(), // local 'yyyy-MM-dd' (derived from `at`, for indexing/grouping)
-  updatedAt: z.number(),
-  deleted: z.boolean().optional(),
-})
-export type PR = z.infer<typeof PRSchema>

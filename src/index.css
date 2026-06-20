@@ -1,6 +1,6 @@
 @import 'tailwindcss';
 
-/* ── Design tokens (from design_handoff_workout_pwa/README.md) ──────────── */
+/* ── Design tokens ───────────────────────────────────────────────────────── */
 @theme {
   --color-bg: #060607;
   --color-card: #131316;
@@ -97,5 +97,18 @@ body {
   }
   .tap:active {
     opacity: 0.7;
+  }
+}
+
+/* Spring the checkmark when a set is marked complete */
+@keyframes set-pop {
+  0% {
+    transform: scale(0.5);
+  }
+  55% {
+    transform: scale(1.2);
+  }
+  100% {
+    transform: scale(1);
   }
 }

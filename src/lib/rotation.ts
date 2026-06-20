@@ -1,9 +1,10 @@
 import type { Day, Session } from '@/db/types'
 
 /**
- * The ULULUL rotation is a fixed 6-day cycle (Upper A → Lower C). It advances
- * by completion — the next workout is the one after your most recently logged
- * session — so it never depends on the calendar weekday.
+ * The rotation is a completion-based cycle of any length (the default seed is the
+ * 6-day ULULUL split, Upper A → Lower C, but days can be added/removed). It
+ * advances by completion — the next workout is the one after your most recently
+ * logged session — so it never depends on the calendar weekday.
  */
 
 const finished = (s: Session) => s.finishedAt != null && !s.deleted
@@ -20,9 +21,11 @@ export function nextInCycle(days: Day[], sessions: Session[]): Day | null {
   return ordered[(idx + 1) % ordered.length]
 }
 
-/** "DAY 5 OF 6" micro label for the hero — position in the 6-day cycle. */
-export function dayOfRotationLabel(day: Day): string {
-  return `DAY ${day.id} OF 6`
+/** "DAY 5 OF 6" micro label for the hero — position in the rotation (any length). */
+export function dayOfRotationLabel(day: Day, days: Day[]): string {
+  const ordered = [...days].sort((a, b) => a.id - b.id)
+  const pos = ordered.findIndex((d) => d.id === day.id) + 1
+  return `DAY ${pos || 1} OF ${ordered.length || 1}`
 }
 
 /** "Dip · Pulldown · Press · Low row +3" — first 4 exercise short names + overflow. */

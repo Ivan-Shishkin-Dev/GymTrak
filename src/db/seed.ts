@@ -1,7 +1,6 @@
-import { addDays, getISODay, startOfDay, startOfWeek, subWeeks } from 'date-fns'
 import { db, uid } from './db'
-import { dateKey, parseLoad, parseReps } from '@/lib/format'
-import type { Day, Exercise, Note, PR, Session, WorkoutSet } from './types'
+import { canonicalLoad } from '@/lib/load'
+import type { Day, Exercise, LoadType, SetRow } from './types'
 
 /* ── The split: 6 days (Upper A → Lower C) ──────────────────────────────── */
 const DAYS: Day[] = [
@@ -13,57 +12,66 @@ const DAYS: Day[] = [
   { id: 6, name: 'Lower C', focus: 'Quad' },
 ]
 
-/** [name, sets, weight, reps, note, libLoad] */
-type Row = [string, number, string, string, string, string]
+/** One planned set: [rawLoad, reps]. Load is canonicalized through the grammar at build. */
+type SetSpec = [string, string]
+/** A catalog entry: display name, load type, its per-set loads, optional cue. */
+type Row = { name: string; type: LoadType; sets: SetSpec[]; note?: string }
 
+/*
+ * The real split. Per-set loads are stored individually (back-offs preserved).
+ * `machine` loads carry their unit in the string: bare "12" is a level, "120 lb"
+ * is a pounds stack. Same-named exercises across days are LINKED (see
+ * propagateLoad in actions.ts) — the names below are deliberately unified so the
+ * link matches (e.g. "Lat Pulldown", "Calf", "Shoulder Press", "Single-Arm Tricep").
+ */
 const CATALOG: Record<number, Row[]> = {
   1: [
-    ['Bench — main strength', 3, '225 lb', '× 4', 'heavy 3–5', 'heavy 3–5 · 225'],
-    ['Lat pulldown', 2, 'Max+10', '× 5', 'Max+10 × 5 → Max × 6', 'Max+10 × 5'],
-    ['Cable fly', 2, 'Max+25', '× 5', 'Max+25 × 5 → Max × 6', 'Max+25 × 5'],
-    ['Chest-supported row', 2, '140 lb', '× 8', '140 × 8', '140 × 8'],
-    ['Lateral raise', 2, '30 lb', '× 5', 'Strict', '30 × 5'],
-    ['SA triceps', 2, '75 lb', '× 6', 'Single arm', '75 × 6'],
-    ['Incline curl', 2, '13 lb', '× 8', 'Full stretch', '13'],
+    { name: 'Heavy Bench', type: 'weight', sets: [['225 lb', '× 2'], ['225 lb', '× 2'], ['205 lb', '× 2']] },
+    { name: 'Lat Pulldown', type: 'machine', sets: [['Max + 10', '× 6'], ['Max', '× 6']] },
+    { name: 'Single-Arm Tricep', type: 'weight', sets: [['85 lb', '× 5'], ['75 lb', '× 6']] },
+    { name: 'Lateral Raise', type: 'machine', sets: [['50 lb', '× 5'], ['45 lb', '× 6']] },
+    { name: 'Pec Dec', type: 'machine', sets: [['Max + 35', '× 5'], ['Max + 10', '× 6']] },
+    { name: 'Incline Curl', type: 'machine', sets: [['12', '× 6'], ['11', '× 6']] },
+    { name: 'Chest-Supported Row', type: 'machine', sets: [['Max', '× 6'], ['140 lb', '× 6']] },
   ],
   2: [
-    ['Leg press', 2, '6 pl', '× 6', '6 pl × 6 → 5+25 × 6', '6 pl × 6'],
-    ['SLDL', 2, '315 lb', '× 4', '315 × 4 → 295 × 6', '315 × 4'],
-    ['Leg extension', 2, '155 lb', '× 5', '155 × 5 → 150 × 6', '155 × 5'],
-    ['Calf', 2, '10', '× 10', 'Full stretch', '10 × 10'],
-    ['Cable crunch', 3, 'wtd', '× 12', 'Full stretch', '10–15 wtd'],
+    { name: 'Leg Press', type: 'plates', sets: [['6 pl + 10', '× 6'], ['5 pl + 25', '× 6']] },
+    { name: 'SLDL', type: 'weight', sets: [['315 lb', '× 4'], ['295 lb', '× 6']] },
+    { name: 'Leg Extension', type: 'weight', sets: [['150 lb', '× 6'], ['140 lb', '× 6']] },
+    { name: 'Calf', type: 'machine', sets: [['10', '× 10'], ['10', '× 10']] },
+    { name: 'Cable Crunch', type: 'machine', sets: [['Max', '× 10'], ['Max', '× 10']] },
   ],
   3: [
-    ['Paused bench', 2, 'heavy', '× 4', 'Paused', 'heavy 4–5'],
-    ['Low row', 2, 'Max', '× 5', 'Max × 5', 'Max × 5'],
-    ['Shoulder press', 2, '80 lb', '× 6', '80 × 6 → 75 × 6', '80 × 6'],
-    ['Pulldown', 2, 'Max', '× 6', 'Max × 6', 'Max × 6'],
-    ['Lateral raise', 2, '30 lb', '× 5', 'Strict', '30 × 5'],
-    ['Pressdown', 2, '75 lb', '× 4', '75 × 4 → 70 × 6', '75 × 4'],
-    ['Preacher curl', 2, '42.5 lb', '× 5', '42.5 × 5 → 40 × 6', '42.5 × 5'],
+    { name: 'Paused Bench (2nd exposure)', type: 'weight', sets: [['205 lb', '× 3'], ['205 lb', '× 3']] },
+    { name: 'Shoulder Press', type: 'machine', sets: [['120 lb', '× 5'], ['110 lb', '× 6']] },
+    { name: 'Pressdown', type: 'weight', sets: [['80 lb', '× 6'], ['75 lb', '× 6']] },
+    { name: 'Low Row', type: 'machine', sets: [['Max', '× 5'], ['Max', '× 5']] },
+    { name: 'Lat Pulldown', type: 'machine', sets: [['Max', '× 6'], ['Max', '× 6']] },
+    { name: 'Lateral Raise', type: 'machine', sets: [['50 lb', '× 5'], ['45 lb', '× 6']] },
+    { name: 'Preacher Curl', type: 'weight', sets: [['40 lb', '× 6'], ['40 lb', '× 6']] },
   ],
   4: [
-    ['SLDL', 2, '295 lb', '× 6', '295 × 6', '295 × 6'],
-    ['Leg curl', 2, 'Max', '× 6', 'Max × 6', 'Max × 6'],
-    ['Leg extension', 2, '150 lb', '× 6', '150 × 6', '150 × 6'],
-    ['Calf', 2, '10', '× 10', 'Full stretch', '10 × 10'],
-    ["Captain's chair leg raise", 3, 'BW', '× 10', 'PPT at bottom', '8–12 PPT'],
+    { name: 'SLDL', type: 'weight', sets: [['315 lb', '× 6'], ['315 lb', '× 6']] },
+    { name: 'Leg Curl', type: 'machine', sets: [['Max', '× 6'], ['Max', '× 6']] },
+    { name: 'Leg Extension', type: 'weight', sets: [['150 lb', '× 6'], ['150 lb', '× 6']] },
+    { name: 'Calf', type: 'machine', sets: [['10', '× 10'], ['10', '× 10']] },
+    { name: "Captain's Chair Leg Raise", type: 'bodyweight', sets: [['BW', '× 8–12'], ['BW', '× 8–12'], ['BW', '× 8–12']], note: 'PPT at bottom' },
   ],
   5: [
-    ['Dip', 2, '+70 lb', '× 6', '+80 × 6 → +70 × 6', '+70 × 6'],
-    ['Lat pulldown', 2, 'Max', '× 6', 'Max × 6', 'Max × 6'],
-    ['Shoulder press', 2, '75 lb', '× 6', '80 × 6 → 75 × 6', '75 × 6'],
-    ['Low row', 2, 'Max', '× 6', 'Max × 6', 'Max × 6'],
-    ['Lateral raise', 2, '30 lb', '× 5', 'Strict', '30 × 5'],
-    ['SA triceps', 2, '75 lb', '× 6', 'Single arm', '75 × 6'],
-    ['Incline curl', 2, '13 lb', '× 8', 'Full stretch', '13'],
+    { name: 'Dip', type: 'bodyweight', sets: [['+80', '× 6'], ['+80', '× 5']] },
+    { name: 'Lat Pulldown', type: 'machine', sets: [['Max + 10', '× 5'], ['Max', '× 6']] },
+    { name: 'Shoulder Press', type: 'machine', sets: [['125 lb', '× 5'], ['120 lb', '× 6']] },
+    { name: 'Single-Arm Tricep', type: 'weight', sets: [['85 lb', '× 4'], ['77.5 lb', '× 6']] },
+    { name: 'Lateral Raise', type: 'machine', sets: [['50 lb', '× 5'], ['45 lb', '× 6']] },
+    { name: 'Incline Curl', type: 'machine', sets: [['10', '× 6'], ['10', '× 6']] },
+    { name: 'Mid Back', type: 'machine', sets: [['Max', '× 6'], ['Max', '× 6']] },
   ],
   6: [
-    ['Leg press', 2, '6 pl', '× 6', '6 pl × 6 → 5+25 × 6', '6 pl × 6'],
-    ['Leg curl', 2, 'Max', '× 6', 'Max × 6', 'Max × 6'],
-    ['Adductor', 2, '16', '× 5', '16 × 5', '16 × 5'],
-    ['Calf', 2, '10', '× 10', 'Full stretch', '10 × 10'],
-    ['Cable crunch', 3, 'wtd', '× 12', 'Full stretch', '10–15 wtd'],
+    { name: 'Leg Press', type: 'plates', sets: [['6 pl + 10', '× 6'], ['5 pl + 35', '× 6']] },
+    { name: 'Leg Curl', type: 'machine', sets: [['155 lb', '× 6'], ['145 lb', '× 6']] },
+    { name: 'Adductor', type: 'machine', sets: [['16', '× 5'], ['16', '× 5']] },
+    { name: 'Calf', type: 'machine', sets: [['10', '× 10'], ['10', '× 10']] },
+    { name: 'Cable Crunch', type: 'machine', sets: [['90 lb', '× 6'], ['80 lb', '× 6'], ['80 lb', '× 6']] },
   ],
 }
 
@@ -71,17 +79,23 @@ function buildExercises(now: number): Exercise[] {
   const out: Exercise[] = []
   for (const day of DAYS) {
     CATALOG[day.id].forEach((r, i) => {
-      const [name, sets, weight, reps, note, libLoad] = r
+      // normalize each set through the grammar so a fresh seed is already canonical
+      const rows: SetRow[] = r.sets.map(([w, reps]) => ({
+        weight: canonicalLoad(w, r.type),
+        reps,
+      }))
       out.push({
         id: uid(),
         dayId: day.id,
         order: i + 1,
-        name,
-        sets,
-        weight,
-        reps,
-        note,
-        libLoad,
+        name: r.name,
+        sets: rows.length,
+        weight: rows[0].weight, // first-set fallback when setRows is absent
+        reps: rows[0].reps,
+        note: r.note ?? '',
+        libLoad: '',
+        setRows: rows,
+        loadType: r.type,
         updatedAt: now,
       })
     })
@@ -89,155 +103,21 @@ function buildExercises(now: number): Exercise[] {
   return out
 }
 
-/* ── Deterministic pseudo-random so the demo looks the same each first run ── */
-function rng(seed: number) {
-  let s = seed
-  return () => {
-    s = (s * 1664525 + 1013904223) % 4294967296
-    return s / 4294967296
-  }
-}
-
-/* Realistic post-set notes, sprinkled onto a fraction of historical sets so the
- * History detail view ("what I hit + my comments") has something to show. */
-const COMMENTS = [
-  'Felt strong — add weight next time',
-  'Last rep was a grind',
-  'Left elbow a little cranky',
-  'Easy, bump it up',
-  'Good depth, controlled',
-  'Grip gave out before the muscle did',
-  'Clean reps, video looked solid',
-  'Lower back tight — kept it conservative',
-  'Tempo on point today',
-  'Cut it one short, shoulder pinch',
-]
-
-/**
- * Demo history so History isn't empty on first launch: finished sessions for the
- * past ~11 weeks (this week's past days always present; older weeks occasionally
- * miss one), each with its completed sets — some carrying a post-set comment.
- * The day rotation is a pure 1→6 cycle. Anchored to `now` so it stays fresh.
- */
-function buildHistory(now: Date) {
-  const rand = rng(20260612)
-  const sessions: Session[] = []
-  const sets: WorkoutSet[] = []
-  const weekMonday = startOfWeek(now, { weekStartsOn: 1 })
-
-  // 11 weeks back up to *yesterday* — today stays unlogged so it's the pending hero
-  const start = subWeeks(weekMonday, 11)
-  const todayMidnight = startOfDay(now)
-  let cyc = 0
-  for (let d = new Date(start); d < todayMidnight; d = addDays(d, 1)) {
-    const wd = getISODay(d) // 1..7
-    if (wd === 7) continue // demo cadence: no session on the 7th day
-    const thisWeek = d >= weekMonday
-    // older weeks: ~12% chance of a missed session; current week: never miss
-    if (!thisWeek && rand() < 0.12) continue
-    const dur = Math.round(46 + rand() * 14) * 60
-    const startedAt = d.getTime() + 18 * 3600 * 1000
-    const sessionId = uid()
-    const dayId = (cyc % 6) + 1 // pure 1→6 rotation cycle
-    sessions.push({
-      id: sessionId,
-      dayId,
-      date: dateKey(d),
-      startedAt,
-      finishedAt: startedAt + dur * 1000,
-      durationSec: dur,
-      updatedAt: startedAt,
-    })
-
-    // completed sets for this session, straight from the day's catalog
-    let offset = 60
-    for (const [name, setCount, weight, reps] of CATALOG[dayId]) {
-      for (let i = 0; i < setCount; i++) {
-        offset += 150 + Math.round(rand() * 120)
-        const hasComment = rand() < 0.16
-        sets.push({
-          id: uid(),
-          sessionId,
-          exerciseId: uid(), // synthetic — history groups by exerciseName
-          exerciseName: name,
-          setIndex: i,
-          weight,
-          reps,
-          weightNum: parseLoad(weight),
-          repsNum: parseReps(reps),
-          completedAt: startedAt + offset * 1000,
-          comment: hasComment
-            ? COMMENTS[Math.floor(rand() * COMMENTS.length)]
-            : undefined,
-          updatedAt: startedAt,
-        })
-      }
-    }
-    cyc++
-  }
-
-  return { sessions, sets }
-}
-
-/** A few starter notes for the Home notepad. */
-function buildNotes(now: Date): Note[] {
-  const base = now.getTime()
-  const day = 86_400_000
-  const mk = (text: string, daysAgo: number): Note => {
-    const t = base - daysAgo * day
-    return { id: uid(), text, createdAt: t, updatedAt: t }
-  }
-  return [
-    mk('Deload paid off — top sets moved faster all week.', 3),
-    mk('Switching incline curls to a slight decline; the stretch feels better.', 8),
-    mk('Sleep has been rough — keep sessions to ~45 min on the bad days.', 15),
-  ]
-}
-
-/** A handful of logged PRs, each stamped with the moment it was hit. */
-function buildPRs(now: Date): PR[] {
-  const base = now.getTime()
-  const day = 86_400_000
-  const mk = (lift: string, value: string, daysAgo: number, hour: number): PR => {
-    const d = new Date(base - daysAgo * day)
-    d.setHours(hour, 14, 0, 0)
-    const at = d.getTime()
-    return { id: uid(), lift, value, at, date: dateKey(d), updatedAt: at }
-  }
-  return [
-    mk('Shoulder press', '85 × 5', 3, 17),
-    mk('Dip', '+90 × 5', 9, 18),
-    mk('SLDL', '315 × 6', 16, 19),
-    mk('Bench', '225 × 4', 34, 18),
-  ]
-}
-
 /**
  * Seed on first launch only (when the DB is empty). Idempotent: if `days`
  * already has rows it does nothing, so reopening the app never duplicates data.
+ * Seeds the split only — rotation starts at Day 1.
  */
 export async function seedIfEmpty(): Promise<void> {
   const count = await db.days.count()
   if (count > 0) return
 
-  const now = new Date()
-  const exercises = buildExercises(now.getTime())
-  const { sessions, sets } = buildHistory(now)
-  const notes = buildNotes(now)
-  const prs = buildPRs(now)
+  const exercises = buildExercises(Date.now())
 
-  await db.transaction(
-    'rw',
-    [db.days, db.exercises, db.sessions, db.sets, db.notes, db.prs],
-    async () => {
-      await db.days.bulkAdd(DAYS)
-      await db.exercises.bulkAdd(exercises)
-      await db.sessions.bulkAdd(sessions)
-      await db.sets.bulkAdd(sets)
-      await db.notes.bulkAdd(notes)
-      await db.prs.bulkAdd(prs)
-    },
-  )
+  await db.transaction('rw', [db.days, db.exercises], async () => {
+    await db.days.bulkAdd(DAYS)
+    await db.exercises.bulkAdd(exercises)
+  })
 }
 
 /** Wipe everything and reseed — handy while iterating, exposed via Settings later. */

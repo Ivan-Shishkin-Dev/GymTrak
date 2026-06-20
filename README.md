@@ -6,11 +6,12 @@ in the browser, works with zero signal in a gym basement, and installs to the ho
 screen like a native app.
 
 Core loop: open → the next workout in the cycle is front and center (override the pick with a
-day chip if you want a different one) → start it → tick off prefilled sets (one tap each, loads
-carry over from last time, jot a note on any set) → finish. The Home screen also has a plain
-notepad. History is a tappable calendar — tap a date to see what you hit and your per-set notes —
-plus a log of PRs (each stamped with the date and time it was hit). The Library of all six days is
-editable in place (rename days, edit/add/remove exercises).
+day chip if you want a different one) → start it → tick off prefilled sets (one tap each, edit any
+set's weight/reps to what you actually hit, jot a note on any set) → finish. Finishing carries each
+lift's top set back to the Library, so loads always prefill from what you last did. The Home screen also has a plain
+notepad. History is a tappable calendar — tap a date to see what you hit and your per-set notes.
+The Library is editable in place — add, remove, and rename days, edit/add/remove exercises, and set
+a different weight/reps per set (top set + back-offs), which prefill each workout and update as you train.
 
 ## Stack
 
@@ -53,19 +54,18 @@ src/
     rotation.ts         # next workout in the cycle, "DAY N OF 6"
     format.ts           # clocks, local-safe dates, load parsing
     stats.ts            # month calendar + session-on-a-date lookup
-    actions.ts          # start → toggle set → finish; notes, PRs, set comments, library edits
-  hooks/useRestTimer.ts # background-correct 90s rest countdown (end-timestamp based)
+    actions.ts          # start → toggle/edit set → finish (carries top sets back to Library); notes, library edits
+  hooks/useRestTimer.ts # background-correct, adjustable rest countdown (end-timestamp based)
   components/           # TabBar, ProgressRing, icons, AppLayout
   screens/              # Home, Log, History, Library
-docs/design-reference/  # the original design handoff (source of truth — see below)
 scripts/shot.mjs        # screenshot loop (drives headless Chrome, mobile viewport)
 ```
 
 ## Data model (Dexie / IndexedDB)
 
-`days` · `exercises` · `sessions` · `sets` · `notes` · `prs`. Each set can carry a free-text
+`days` · `exercises` · `sessions` · `sets` · `notes`. Each set can carry a free-text
 `comment` (the note added after a set, surfaced in History). Every record carries a
-string UUID `id` and an `updatedAt` stamp — and `notes`/`prs` soft-delete via `deleted` — so the
+string UUID `id` and an `updatedAt` stamp — and `notes` soft-delete via `deleted` — so the
 planned Supabase sync (last-write-wins) is a bolt-on rather than a rewrite.
 
 ## Offline & install
@@ -92,16 +92,8 @@ SHOT_W=430 SHOT_H=932 node scripts/shot.mjs /  # different viewport
 Output lands in `.shots/`. `/log` is special-cased: it starts a session and ticks a set so
 the rest timer + Finish button are visible.
 
-## Design reference
+## Known gaps (not built yet)
 
-`docs/design-reference/` holds the original handoff this app was built from: `README.md`
-(the full spec — tokens, screens, interactions, the seed split) and `Workout App.dc.html`
-(the interactive prototype; open in a browser). `support.js` / `ios-frame.jsx` are that
-prototype's runtime/bezel and are **not** part of this app.
-
-## Known gaps (from the handoff — not built yet)
-
-- Editing weight/reps during a session (steppers) — sets are tick-only for now.
 - Empty states / first-run onboarding.
-- Settings (rest duration is hard-coded to 90s).
+- A general Settings screen — rest length is adjustable in the Log footer (60/90/120/180s, persisted), but nothing else is configurable yet.
 - Phase 2: Supabase sync/backup across devices.

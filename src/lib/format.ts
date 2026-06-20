@@ -1,6 +1,7 @@
 import { differenceInCalendarDays, format, parseISO } from 'date-fns'
+import type { SetRow } from '@/db/types'
 
-/** Seconds → "m:ss" (used by the elapsed + rest timers). */
+/** Seconds → "m:ss" (used by the workout elapsed timer). */
 export function fmtClock(totalSec: number): string {
   const s = Math.max(0, Math.floor(totalSec))
   const m = Math.floor(s / 60)
@@ -38,4 +39,21 @@ export function parseLoad(token: string): number | null {
 export function parseReps(token: string): number | null {
   const m = token.match(/(\d+)/)
   return m ? Number(m[1]) : null
+}
+
+/**
+ * The per-set loads for an exercise: its `setRows` if set, otherwise `sets`
+ * copies of the single weight/reps (so legacy/uniform exercises still work).
+ */
+export function getSetRows(ex: {
+  sets: number
+  weight: string
+  reps: string
+  setRows?: SetRow[]
+}): SetRow[] {
+  if (ex.setRows && ex.setRows.length) return ex.setRows
+  return Array.from({ length: Math.max(1, ex.sets) }, () => ({
+    weight: ex.weight,
+    reps: ex.reps,
+  }))
 }

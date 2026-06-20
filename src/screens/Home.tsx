@@ -1,26 +1,20 @@
-import { useState, useRef } from 'react'
+import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
-import { format } from 'date-fns'
 import { db } from '@/db/db'
-import { startSession, addNote, deleteNote } from '@/lib/actions'
+import { startSession } from '@/lib/actions'
 import { dayOfRotationLabel, nextInCycle } from '@/lib/rotation'
+import { ExerciseSummary } from '@/components/ExerciseSummary'
 import { ProgressRing } from '@/components/ProgressRing'
-import type { Exercise, Note } from '@/db/types'
+import { SyncBar } from '@/components/SyncBar'
+import type { Exercise } from '@/db/types'
 
 export function Home() {
   const navigate = useNavigate()
   const [overrideId, setOverrideId] = useState<number | null>(null)
-  const [noteText, setNoteText] = useState('')
-  const inputRef = useRef<HTMLInputElement>(null)
 
   const days = useLiveQuery(() => db.days.orderBy('id').toArray(), [], [])
   const sessions = useLiveQuery(() => db.sessions.toArray(), [], [])
-  const notes = useLiveQuery(
-    () => db.notes.orderBy('createdAt').reverse().toArray(),
-    [],
-    [] as Note[],
-  )
 
   const autoPicked = nextInCycle(days, sessions)
   const day =
@@ -37,8 +31,9 @@ export function Home() {
     [] as Exercise[],
   )
 
-  const ringPct = day ? Math.round((day.id / 6) * 100) : 0
-  const visibleNotes = (notes ?? []).filter((n) => !n.deleted)
+  // Position in the rotation (1-based), works with any number of days.
+  const dayPos = day ? days.findIndex((d) => d.id === day.id) + 1 : 0
+  const ringPct = day && days.length ? Math.round((dayPos / days.length) * 100) : 0
 
   async function start() {
     if (!day) return
@@ -47,20 +42,11 @@ export function Home() {
     navigate('/log')
   }
 
-  async function handleAddNote() {
-    if (!noteText.trim()) return
-    await addNote(noteText)
-    setNoteText('')
-    inputRef.current?.focus()
-  }
-
-  function handleNoteKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Enter') handleAddNote()
-  }
-
   return (
     <div className="screen">
       <div className="screen-title">Workouts</div>
+
+      <SyncBar />
 
       {/* ── Day picker ─────────────────────────────────────────────────── */}
       {days.length > 0 && (
@@ -72,7 +58,7 @@ export function Home() {
             marginBottom: 4,
           }}
         >
-          {days.map((d) => {
+          {days.map((d, i) => {
             const isSelected =
               overrideId != null ? d.id === overrideId : d.id === autoPicked?.id
             return (
@@ -98,7 +84,7 @@ export function Home() {
                   transition: 'all 0.15s ease',
                 }}
               >
-                {d.id}
+                {i + 1}
               </button>
             )
           })}
@@ -137,13 +123,13 @@ export function Home() {
               color: 'var(--color-sub)',
             }}
           >
-            {dayOfRotationLabel(day)}
+            {dayOfRotationLabel(day, days)}
           </div>
 
           {/* name + ring row */}
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 18 }}>
             <ProgressRing pct={ringPct}>
-              <span style={{ fontSize: 22, fontWeight: 680 }}>{day.id}</span>
+              <span style={{ fontSize: 22, fontWeight: 680 }}>{dayPos}</span>
             </ProgressRing>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
               <div
@@ -204,19 +190,17 @@ export function Home() {
                   >
                     {ex.name}
                   </span>
-                  {ex.libLoad && (
-                    <span
-                      style={{
-                        fontSize: 12,
-                        color: 'var(--color-dim)',
-                        fontFamily: 'var(--font-mono)',
-                        marginLeft: 'auto',
-                        flexShrink: 0,
-                      }}
-                    >
-                      {ex.libLoad}
-                    </span>
-                  )}
+                  <span
+                    style={{
+                      fontSize: 12,
+                      color: 'var(--color-dim)',
+                      fontFamily: 'var(--font-mono)',
+                      marginLeft: 'auto',
+                      flexShrink: 0,
+                    }}
+                  >
+                    <ExerciseSummary ex={ex} />
+                  </span>
                 </li>
               ))}
             </ul>
@@ -244,149 +228,6 @@ export function Home() {
           </button>
         </div>
       )}
-
-      {/* ── Notes card ─────────────────────────────────────────────────── */}
-      <div
-        className="card"
-        style={{
-          borderRadius: 26,
-          padding: 20,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 14,
-        }}
-      >
-        <div
-          style={{
-            fontFamily: 'var(--font-mono)',
-            fontSize: 11,
-            letterSpacing: '0.12em',
-            color: 'var(--color-sub)',
-          }}
-        >
-          NOTES
-        </div>
-
-        {/* input row */}
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <input
-            ref={inputRef}
-            value={noteText}
-            onChange={(e) => setNoteText(e.target.value)}
-            onKeyDown={handleNoteKeyDown}
-            placeholder="Add a note…"
-            style={{
-              flex: 1,
-              background: 'var(--color-bg)',
-              border: '1px solid var(--color-pill-border)',
-              borderRadius: 14,
-              color: 'var(--color-text)',
-              padding: '11px 14px',
-              fontSize: 14,
-              outline: 'none',
-              fontFamily: 'inherit',
-            }}
-          />
-          <button
-            className="tap"
-            onClick={handleAddNote}
-            disabled={!noteText.trim()}
-            style={{
-              height: 40,
-              paddingInline: 16,
-              borderRadius: 20,
-              background: noteText.trim() ? 'var(--color-volt)' : 'var(--color-card-border)',
-              color: noteText.trim() ? 'var(--color-on-volt)' : 'var(--color-dim)',
-              border: 'none',
-              fontSize: 13,
-              fontWeight: 700,
-              cursor: noteText.trim() ? 'pointer' : 'default',
-              flexShrink: 0,
-              transition: 'background 0.15s ease, color 0.15s ease',
-            }}
-          >
-            Add
-          </button>
-        </div>
-
-        {/* note list */}
-        {visibleNotes.length > 0 && (
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 0,
-            }}
-          >
-            {visibleNotes.map((note, i) => (
-              <div
-                key={note.id}
-                style={{
-                  display: 'flex',
-                  alignItems: 'flex-start',
-                  gap: 10,
-                  paddingBlock: 12,
-                  borderTop:
-                    i === 0 ? '1px solid var(--color-separator)' : undefined,
-                  borderBottom: '1px solid var(--color-separator)',
-                }}
-              >
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
-                  <span
-                    style={{
-                      fontSize: 14,
-                      color: 'var(--color-text)',
-                      lineHeight: 1.4,
-                    }}
-                  >
-                    {note.text}
-                  </span>
-                  <span
-                    style={{
-                      fontSize: 11,
-                      color: 'var(--color-dim)',
-                      fontFamily: 'var(--font-mono)',
-                    }}
-                  >
-                    {format(new Date(note.createdAt), 'MMM d, yyyy')}
-                  </span>
-                </div>
-                <button
-                  className="tap"
-                  onClick={() => deleteNote(note.id)}
-                  aria-label="Delete note"
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: 'var(--color-faint)',
-                    cursor: 'pointer',
-                    padding: '2px 4px',
-                    fontSize: 16,
-                    lineHeight: 1,
-                    flexShrink: 0,
-                    marginTop: 1,
-                  }}
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {visibleNotes.length === 0 && (
-          <div
-            style={{
-              fontSize: 13,
-              color: 'var(--color-dim)',
-              textAlign: 'center',
-              paddingBlock: 8,
-            }}
-          >
-            No notes yet
-          </div>
-        )}
-      </div>
     </div>
   )
 }
