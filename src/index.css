@@ -86,20 +86,29 @@ textarea,
     background: var(--color-bg);
   }
 
-  /* Scrollable full-screen view (Home / History / Progress / Library) */
-  .screen {
+  /* Tabbed-screen shell: a scrollable content region docked ABOVE the tab bar,
+     never under it — so content can't hide behind the bar. The bar is a real
+     layout band (see TabBar), not a floating overlay. */
+  .app-shell {
     position: absolute;
     inset: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .screen-scroll {
+    flex: 1;
+    min-height: 0; /* let the flex child shrink so its content actually scrolls */
     overflow-y: auto;
-    /* Momentum scroll + keep overscroll inside this box so it never reaches
-       the locked document. */
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
+  }
+
+  /* A screen's content column (Home / Library) — lives inside .screen-scroll. */
+  .screen {
     display: flex;
     flex-direction: column;
     gap: 14px;
-    padding: calc(74px + env(safe-area-inset-top)) 20px
-      calc(130px + env(safe-area-inset-bottom));
+    padding: calc(74px + env(safe-area-inset-top)) 20px 16px;
     /* Fade + gentle rise on entry — replays on every navigation (screens remount) */
     animation: screen-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
   }
