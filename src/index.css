@@ -27,20 +27,49 @@
   --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
 }
 
+html,
+body,
+#root {
+  height: 100%;
+}
+
 html {
   background: var(--color-bg);
   color-scheme: dark;
+  overflow: hidden;
+  overscroll-behavior: none;
 }
 
 body {
   margin: 0;
+  /* Pin the document to the viewport so a finger drag scrolls the inner screen,
+     never the page itself — kills the iOS rubber-band where the whole screen
+     moves. The only scrollers are .screen and the Log set-list (below). */
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
   background: var(--color-bg);
   color: var(--color-text);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
-  overscroll-behavior-y: none;
   text-rendering: optimizeLegibility;
+  /* Native-app touch feel: no long-press magnifier/callout, no accidental text
+     selection while tapping/dragging, no double-tap-to-zoom delay on buttons. */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+/* …but anything the user types or may want to copy stays selectable. */
+input,
+textarea,
+[contenteditable='true'] {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
 }
 
 /* Hide scrollbars — touch-first, matches the prototype */
@@ -58,7 +87,7 @@ body {
     position: relative;
     width: 100%;
     max-width: 460px;
-    height: 100dvh;
+    height: 100%;
     margin: 0 auto;
     overflow: hidden;
     background: var(--color-bg);
@@ -69,6 +98,10 @@ body {
     position: absolute;
     inset: 0;
     overflow-y: auto;
+    /* Momentum scroll + keep overscroll inside this box so it never reaches
+       the locked document. */
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
     display: flex;
     flex-direction: column;
     gap: 14px;
@@ -130,7 +163,8 @@ body {
     border-radius: 14px;
     color: var(--color-text);
     padding: 14px;
-    font-size: 15px;
+    /* 16px keeps iOS from auto-zooming the page when the field is focused. */
+    font-size: 16px;
     font-family: inherit;
     text-align: center;
     letter-spacing: 0.04em;

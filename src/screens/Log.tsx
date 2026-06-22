@@ -196,6 +196,8 @@ export function Log() {
         style={{
           flex: 1,
           overflowY: 'auto',
+          WebkitOverflowScrolling: 'touch',
+          overscrollBehavior: 'contain',
           padding: '6px 20px 24px',
           display: 'flex',
           flexDirection: 'column',
