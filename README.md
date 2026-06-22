@@ -1,99 +1,83 @@
-# GymTrak — Workouts
+# GymTrak
 
-A personal, **offline-first, installable** workout tracker for a 6-day **ULULUL split**
-(Upper A → Lower C). No accounts, no server: it runs entirely
-in the browser, works with zero signal in a gym basement, and installs to the home
-screen like a native app.
+A personal workout tracker I built for myself. It runs in the browser, works offline, and installs to your phone like an app. Anyone with the link can view my training log; only I can edit it, gated by a password. No accounts, no login.
 
-Core loop: open → the next workout in the cycle is front and center (override the pick with a
-day chip if you want a different one) → start it → tick off prefilled sets (one tap each, edit any
-set's weight/reps to what you actually hit, jot a note on any set) → finish. Finishing carries each
-lift's top set back to the Library, so loads always prefill from what you last did. The Home screen also has a plain
-notepad. History is a tappable calendar — tap a date to see what you hit and your per-set notes.
-The Library is editable in place — add, remove, and rename days, edit/add/remove exercises, and set
-a different weight/reps per set (top set + back-offs), which prefill each workout and update as you train.
+## Why I built it
+
+I tried a bunch of gym apps and none of them did quite what I wanted. Most paywall the parts that are actually useful, bury logging under menus, or push their own idea of a program onto you. I wanted something simple that matched my real split, prefilled what I lifted last time, and that I fully owned — no subscription, no account, my data. So I wrote my own. It does exactly what I need and nothing I don't, and I keep changing it as my training changes.
+
+## What it does
+
+- **Pick a day, start, log it.** The app suggests the next day in my rotation, but I can start any of them. Each set comes prefilled with what I did last time — tap to mark it done, or edit the weight/reps to what I actually hit.
+- **Loads carry forward.** Finishing a workout writes each lift's top set back to the Library, so next time prefills from reality instead of a guess.
+- **The plan is editable.** The Library holds the split: add, rename, and reorder days; add, edit, reorder, and remove exercises; set per-set loads (top set plus back-offs). Exercises with the same name across days are linked, so updating one updates all of them.
+- **Different kinds of load.** Free weight, machine stack/level, plate count, bodyweight (added or assisted), or free text. Each exercise pins how its weight is written so the notation never drifts set to set.
+- **Public to read, password to edit.** The whole log is open to view. Editing asks for a password; enter it once and you're in edit mode for the session. Everything syncs to the cloud, so it's the same on my phone and laptop.
+- **Works offline.** It's a PWA — loads with no signal after the first visit, installs to the home screen, runs fullscreen.
+
+## How access control works
+
+There are no accounts. All the data lives in a single Supabase row as one JSON blob:
+
+- **Reading** is open to everyone (Row-Level Security allows public reads).
+- **Writing** is blocked at the database level. The only write path is a `save_state` Postgres function that checks an edit password (bcrypt, server-side) before saving. The password never ships in the app.
+- The anon key and the data are public by design. The password is the only thing gating edits.
+
+Without the password the app is read-only. Enter it and you flip into edit mode for the browser session.
 
 ## Stack
 
 | Layer | Choice |
 |---|---|
-| Build / framework | Vite + React + TypeScript (SPA) |
+| Framework / build | React + TypeScript + Vite (SPA) |
 | Offline + installable | `vite-plugin-pwa` (Workbox service worker + manifest) |
-| Local storage | Dexie.js (IndexedDB) |
+| Local storage | Dexie.js over IndexedDB |
 | Reactivity | `dexie-react-hooks` (`useLiveQuery`) |
-| Styling | Tailwind CSS v4 (mobile-first, design tokens in `src/index.css`) |
+| Styling | Tailwind CSS v4 (design tokens in `src/index.css`) |
 | Routing | React Router |
-| Schemas / validation | Zod (`src/db/types.ts`) |
-| Sync / backup (phase 2) | Supabase — not wired yet |
+| Schemas | Zod (`src/db/types.ts`) |
+| Cloud sync | Supabase (public read, password-gated write via RPC) |
 
 ## Getting started
 
 ```bash
 npm install
-npm run dev          # http://localhost:5180 (dev)
-npm run build        # typecheck + production build to dist/
-npm run preview      # serve the production build (SW active here)
+npm run dev      # http://localhost:5180
+npm run build    # typecheck + production build → dist/
+npm run preview  # serve the build (service worker is active here)
 ```
 
-On first launch the app seeds your split (the six days + their exercises) plus some
-demo history so History isn't empty. The seed only runs when the DB is empty
-(`seedIfEmpty` in `src/db/seed.ts`); `resetAndReseed()` wipes and reseeds.
+Cloud sync is optional locally. Copy `.env.example` to `.env` and fill in your Supabase URL and anon/publishable key to turn it on. Without it the app still runs fully offline against local storage — it just won't sync.
+
+On first launch it seeds the split (the six days and their exercises) into IndexedDB. After that your data lives locally and, if configured, syncs to Supabase last-write-wins by timestamp.
 
 ## Project structure
 
 ```
 src/
-  main.tsx              # entry: registers the SW, seeds, renders
-  App.tsx               # routes: / /history /library (tabbed) + /log (full-screen)
-  index.css             # Tailwind + design tokens (@theme) + base component classes
+  main.tsx        registers the service worker, starts sync, renders
+  App.tsx         routes: / and /library (tabbed) + /log (full-screen)
+  index.css       Tailwind + design tokens + base component styles
   db/
-    types.ts            # Zod schemas → inferred types (the record shapes)
-    db.ts               # Dexie database + table indexes
-    seed.ts             # the ULULUL catalog + demo history
+    types.ts      Zod schemas → inferred record types
+    db.ts         Dexie database + indexes (days · exercises · sessions · sets)
+    seed.ts       the 6-day split catalog
   lib/
-    rotation.ts         # next workout in the cycle, "DAY N OF 6"
-    format.ts           # clocks, local-safe dates, load parsing
-    stats.ts            # month calendar + session-on-a-date lookup
-    actions.ts          # start → toggle/edit set → finish (carries top sets back to Library); notes, library edits
-  hooks/useRestTimer.ts # background-correct, adjustable rest countdown (end-timestamp based)
-  components/           # TabBar, ProgressRing, icons, AppLayout
-  screens/              # Home, Log, History, Library
-scripts/shot.mjs        # screenshot loop (drives headless Chrome, mobile viewport)
+    rotation.ts   suggested next day, day ordering
+    load.ts       the load grammar (parse/format each load type)
+    format.ts     clocks, local-safe dates, set rows
+    actions.ts    start → toggle/edit set → finish; library edits; load carry-over
+    supabase.ts   the anon client (no auth)
+    sync.ts       snapshot serialize/apply, edit mode, push/pull
+  components/      AppLayout, TabBar, CycleRail, IdentityGate, SyncBar, LoadEditor, …
+  screens/        Home, Library, Log
+scripts/shot.mjs  screenshot loop (headless Chrome at a phone viewport)
 ```
 
-## Data model (Dexie / IndexedDB)
+## Deploy
 
-`days` · `exercises` · `sessions` · `sets` · `notes`. Each set can carry a free-text
-`comment` (the note added after a set, surfaced in History). Every record carries a
-string UUID `id` and an `updatedAt` stamp — and `notes` soft-delete via `deleted` — so the
-planned Supabase sync (last-write-wins) is a bolt-on rather than a rewrite.
+It's a static SPA. I host it on Vercel; `vercel.json` rewrites every route to `index.html`. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in the project's environment variables, then redeploy (env changes only apply to new builds). The build also accepts the `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_PUBLISHABLE_KEY` names that Vercel's Supabase integration sets automatically.
 
-## Offline & install
+## Status
 
-`vite-plugin-pwa` generates a service worker that precaches the app shell + assets, so the
-app loads with no network after the first visit. The web manifest + icons make it
-"Add to Home Screen"-able; it runs fullscreen (`display: standalone`). The SW is active in
-the production build (`npm run preview` / deployed) — it's disabled in dev.
-
-> Icons are SVG (`public/icon.svg`, `icon-maskable.svg`). For maximum install
-> compatibility you may later want to add PNG 192/512 variants.
-
-## Screenshot loop
-
-`scripts/shot.mjs` drives the system Chrome over the DevTools protocol to snapshot any
-route at a phone viewport — the build → look → fix loop, no device needed:
-
-```bash
-node scripts/shot.mjs                          # home
-node scripts/shot.mjs / /history /library /log
-SHOT_W=430 SHOT_H=932 node scripts/shot.mjs /  # different viewport
-```
-
-Output lands in `.shots/`. `/log` is special-cased: it starts a session and ticks a set so
-the rest timer + Finish button are visible.
-
-## Known gaps (not built yet)
-
-- Empty states / first-run onboarding.
-- A general Settings screen — rest length is adjustable in the Log footer (60/90/120/180s, persisted), but nothing else is configurable yet.
-- Phase 2: Supabase sync/backup across devices.
+This is a personal project for my own training. It's not meant to be a general-purpose product — I add and change things as I need them.
