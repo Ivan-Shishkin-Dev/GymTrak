@@ -1,18 +1,24 @@
+import { useSyncExternalStore } from 'react'
 import { db } from '@/db/db'
 import { seedIfEmpty } from '@/db/seed'
 import { supabase, isSupabaseConfigured } from './supabase'
 import type { Day, Exercise, Session, WorkoutSet } from '@/db/types'
 
 /**
- * Whole-DB blob sync (see README). The entire local database is shipped to one
- * Supabase row (`gt_state`) as JSON; the newest snapshot wins (last-write-wins by
- * `updated_at`). Because we snapshot everything, deletions and per-set edits sync
- * for free — a removed record is simply absent from the next snapshot, no
- * tombstones needed. This is plenty for a single user who edits one device at a
- * time; truly simultaneous edits on two devices resolve to whichever saved last.
+ * Public-read / password-write sync.
  *
- * The app stays fully usable offline and signed-out — every function below
- * no-ops when Supabase isn't configured or no one is signed in.
+ * The entire local database is mirrored to ONE shared, publicly-readable Supabase
+ * row (`gt_state`, id = 1) as a JSON snapshot. Anyone can read it — that's how the
+ * app is publicly viewable with no sign-in. Writing is gated by an edit password:
+ *
+ *   • Reads happen with the anon key (RLS allows `select` for everyone).
+ *   • Writes go ONLY through the `save_state(password, data)` RPC, which verifies
+ *     the password server-side. RLS blocks any direct table write, so the password
+ *     is the real lock — the UI gating below is just UX.
+ *
+ * "Edit mode" = the user proved they're Ivan (entered the password). The password
+ * is held in sessionStorage so it survives reloads in the same tab and rides along
+ * on every save. Newest snapshot wins (last-write-wins by `updated_at`).
  */
 
 type Snapshot = {
@@ -23,13 +29,15 @@ type Snapshot = {
 }
 
 const TABLE = 'gt_state'
+const ROW_ID = 1
+const PW_KEY = 'gt_edit_pw'
 const PUSH_DEBOUNCE_MS = 1200
 
 /* ── Observable status for the UI ──────────────────────────────────────────── */
 
 export type SyncStatus =
   | 'offline' // Supabase not configured
-  | 'signed-out'
+  | 'idle'
   | 'syncing'
   | 'synced'
   | 'error'
@@ -37,12 +45,22 @@ export type SyncStatus =
 export type SyncState = {
   configured: boolean
   status: SyncStatus
-  email: string | null
+  editMode: boolean // true once the password is verified (Ivan)
+  promptOpen: boolean // identity / password modal should be shown
   error: string | null
 }
 
-let status: SyncStatus = isSupabaseConfigured ? 'signed-out' : 'offline'
-let email: string | null = null
+function readPw(): string | null {
+  try {
+    return sessionStorage.getItem(PW_KEY)
+  } catch {
+    return null
+  }
+}
+
+let status: SyncStatus = isSupabaseConfigured ? 'idle' : 'offline'
+let editMode = readPw() != null
+let promptOpen = false
 let lastError: string | null = null
 
 const listeners = new Set<() => void>()
@@ -50,12 +68,19 @@ const listeners = new Set<() => void>()
 let snapshot: SyncState = {
   configured: isSupabaseConfigured,
   status,
-  email,
+  editMode,
+  promptOpen,
   error: lastError,
 }
 
 function emit() {
-  snapshot = { configured: isSupabaseConfigured, status, email, error: lastError }
+  snapshot = {
+    configured: isSupabaseConfigured,
+    status,
+    editMode,
+    promptOpen,
+    error: lastError,
+  }
   for (const l of listeners) l()
 }
 function setStatus(s: SyncStatus, err: string | null = null) {
@@ -72,13 +97,27 @@ export function getSyncSnapshot(): SyncState {
   return snapshot
 }
 
+/** Hook: subscribe to the full sync state. */
+export function useSyncState(): SyncState {
+  return useSyncExternalStore(subscribeSync, getSyncSnapshot)
+}
+/** Hook: just the edit-mode flag (screens use this to show/hide edit controls). */
+export function useEditMode(): boolean {
+  return useSyncExternalStore(subscribeSync, () => getSyncSnapshot().editMode)
+}
+
+/** Synchronous read for the action-layer write guard. */
+export function isEditMode(): boolean {
+  return editMode
+}
+
 /* ── Internal state ────────────────────────────────────────────────────────── */
 
-let userId: string | null = null
 let started = false
 let suspended = false // true while we rewrite the DB from a pull (mutes change hooks)
 let dirty = false // local edits not yet pushed
 let cursor = 0 // updated_at of the snapshot currently reflected locally (in-memory)
+let hasCloudRow = false
 let pushTimer: ReturnType<typeof setTimeout> | null = null
 let channel: ReturnType<NonNullable<typeof supabase>['channel']> | null = null
 
@@ -135,36 +174,51 @@ async function localMaxUpdatedAt(): Promise<number> {
 
 /* ── Push / pull ───────────────────────────────────────────────────────────── */
 
+/** Push the whole local DB up via the password-checked RPC. No-ops unless in edit mode. */
 async function push(): Promise<void> {
-  if (!supabase || !userId) return
+  const pw = readPw()
+  if (!supabase || !editMode || !pw) return
   setStatus('syncing')
   const data = await serialize()
-  const updated_at = Date.now()
-  const { error } = await supabase
-    .from(TABLE)
-    .upsert({ user_id: userId, data, updated_at }, { onConflict: 'user_id' })
+  const { data: ts, error } = await supabase.rpc('save_state', {
+    p_password: pw,
+    p_data: data,
+  })
   if (error) {
-    setStatus('error', error.message)
+    // Most likely the password is no longer valid → drop edit mode and re-prompt.
+    if (/invalid password/i.test(error.message)) {
+      clearPassword()
+      setStatus('error', 'Edit password is no longer valid.')
+      promptOpen = true
+      emit()
+    } else {
+      setStatus('error', error.message)
+    }
     return
   }
-  cursor = updated_at
+  cursor = Number(ts) || Date.now()
+  hasCloudRow = true
   dirty = false
   setStatus('synced')
 }
 
 /** Adopt the server snapshot if it's newer than what we have locally. */
 async function pull(): Promise<'pulled' | 'current' | 'empty'> {
-  if (!supabase || !userId) return 'current'
+  if (!supabase) return 'current'
   const { data, error } = await supabase
     .from(TABLE)
     .select('data, updated_at')
-    .eq('user_id', userId)
+    .eq('id', ROW_ID)
     .maybeSingle()
   if (error) {
     setStatus('error', error.message)
     return 'current'
   }
-  if (!data) return 'empty'
+  if (!data) {
+    hasCloudRow = false
+    return 'empty'
+  }
+  hasCloudRow = true
   const serverUpdated = Number(data.updated_at)
   if (serverUpdated > cursor) {
     await applySnapshot(data.data as Snapshot)
@@ -172,16 +226,18 @@ async function pull(): Promise<'pulled' | 'current' | 'empty'> {
     setStatus('synced')
     return 'pulled'
   }
+  setStatus('synced')
   return 'current'
 }
 
 /** Pull only when we have no pending local edits — our push should win otherwise. */
 async function pullIfIdle(): Promise<void> {
-  if (dirty || pushTimer || !userId) return
+  if (dirty || pushTimer) return
   await pull()
 }
 
 function schedulePush(): void {
+  if (!editMode) return
   setStatus('syncing')
   if (pushTimer) clearTimeout(pushTimer)
   pushTimer = setTimeout(() => {
@@ -191,43 +247,47 @@ function schedulePush(): void {
 }
 
 /**
- * First reconcile after sign-in. The careful bit: a fresh device must ADOPT the
- * cloud, never overwrite it with default seed data — so we only seed when the
- * cloud row doesn't exist yet, and otherwise compare timestamps to decide which
- * side is newer.
+ * First reconcile at startup. A fresh viewer must ADOPT the public cloud row, never
+ * overwrite it. We only seed default data when no cloud row exists yet; otherwise
+ * we adopt the cloud unless THIS device (in edit mode) has newer offline edits.
  */
 async function reconcile(): Promise<void> {
-  if (!supabase || !userId) return
+  if (!supabase) return
   setStatus('syncing')
   const { data, error } = await supabase
     .from(TABLE)
     .select('data, updated_at')
-    .eq('user_id', userId)
+    .eq('id', ROW_ID)
     .maybeSingle()
   if (error) {
     setStatus('error', error.message)
+    await seedIfEmpty()
     return
   }
 
   if (!data) {
-    // No cloud row yet → this device seeds the cloud. Seed locally first if empty.
+    // No cloud row yet → seed locally so there's something to show. If we're the
+    // editor, push it up to seed the public row for everyone else.
+    hasCloudRow = false
     suspended = true
     try {
       await seedIfEmpty()
     } finally {
       suspended = false
     }
-    await push()
+    if (editMode) await push()
+    else setStatus('synced')
     return
   }
 
+  hasCloudRow = true
   const serverUpdated = Number(data.updated_at)
   const localMax = await localMaxUpdatedAt()
-  if (localMax > serverUpdated) {
-    // Local has newer (offline) edits than the cloud → push them up.
+  if (editMode && localMax > serverUpdated) {
+    // This device has newer (offline) edits than the cloud → push them up.
     await push()
   } else {
-    // Cloud is as-new-or-newer → adopt it wholesale (covers fresh/empty devices).
+    // Cloud is as-new-or-newer → adopt it wholesale (covers fresh viewers).
     await applySnapshot(data.data as Snapshot)
     cursor = serverUpdated
     dirty = false
@@ -235,10 +295,10 @@ async function reconcile(): Promise<void> {
   }
 }
 
-/* ── Change hooks (auto-push on any local write) ───────────────────────────── */
+/* ── Change hooks (auto-push on any local write, only while editing) ────────── */
 
 function onLocalChange(): void {
-  if (suspended || !userId) return
+  if (suspended || !editMode) return
   dirty = true
   schedulePush()
 }
@@ -258,52 +318,68 @@ function registerHooks(): void {
 /* ── Realtime ──────────────────────────────────────────────────────────────── */
 
 function subscribeRealtime(): void {
-  if (!supabase || !userId) return
+  if (!supabase || channel) return
   channel = supabase
     .channel('gt_state_sync')
     .on(
       'postgres_changes',
-      {
-        event: '*',
-        schema: 'public',
-        table: TABLE,
-        filter: `user_id=eq.${userId}`,
-      },
+      { event: '*', schema: 'public', table: TABLE },
       () => {
         void pullIfIdle()
       },
     )
     .subscribe()
 }
-function teardownRealtime(): void {
-  if (channel && supabase) {
-    void supabase.removeChannel(channel)
-    channel = null
+
+/* ── Edit-mode (password) control ──────────────────────────────────────────── */
+
+function clearPassword(): void {
+  try {
+    sessionStorage.removeItem(PW_KEY)
+  } catch {
+    /* ignore */
   }
+  editMode = false
 }
 
-/* ── Auth lifecycle ────────────────────────────────────────────────────────── */
+/** Verify the edit password; on success, enter edit mode for this session. */
+export async function enterEditMode(
+  password: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!supabase) return { ok: false, error: 'Editing is unavailable offline.' }
+  const pw = password.trim()
+  if (!pw) return { ok: false, error: 'Enter the password.' }
+  const { data, error } = await supabase.rpc('check_password', { p_password: pw })
+  if (error) return { ok: false, error: error.message }
+  if (!data) return { ok: false, error: 'Wrong password.' }
 
-async function handleAuth(uid: string | null, mail: string | null): Promise<void> {
-  email = mail
-  if (started && uid === userId) {
-    emit() // token refresh / no identity change
-    return
+  try {
+    sessionStorage.setItem(PW_KEY, pw)
+  } catch {
+    /* ignore */
   }
-  started = true
-  userId = uid
-  teardownRealtime()
-  if (userId) {
-    cursor = 0
-    dirty = false
-    setStatus('syncing')
-    subscribeRealtime()
-    await reconcile()
-  } else {
-    setStatus('signed-out')
-    // Local-only mode: seed the split if this is a blank install.
-    await seedIfEmpty()
-  }
+  editMode = true
+  promptOpen = false
+  emit()
+  // First editor on an empty project: seed the public row so viewers see content.
+  if (!hasCloudRow) await push()
+  return { ok: true }
+}
+
+/** Leave edit mode (back to public view-only). Local data already matches cloud. */
+export function exitEditMode(): void {
+  clearPassword()
+  emit()
+}
+
+/** Show / hide the identity (are-you-Ivan) modal. */
+export function openEditPrompt(): void {
+  promptOpen = true
+  emit()
+}
+export function closeEditPrompt(): void {
+  promptOpen = false
+  emit()
 }
 
 /* ── Public API ────────────────────────────────────────────────────────────── */
@@ -313,49 +389,24 @@ export async function initSync(): Promise<void> {
   registerHooks()
 
   if (!supabase) {
-    // No cloud configured → plain offline app.
+    // No cloud configured → plain offline app (everything is locally editable).
+    editMode = true
     setStatus('offline')
     await seedIfEmpty()
     return
   }
 
-  window.addEventListener('online', () => void pullIfIdle())
+  if (started) return
+  started = true
+
+  window.addEventListener('online', () => {
+    if (dirty && editMode) void push()
+    else void pullIfIdle()
+  })
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') void pullIfIdle()
   })
 
-  // onAuthStateChange fires INITIAL_SESSION on load, so it drives first reconcile.
-  supabase.auth.onAuthStateChange((_event, session) => {
-    void handleAuth(session?.user?.id ?? null, session?.user?.email ?? null)
-  })
-}
-
-/** Send a magic-link sign-in email. */
-export async function signInWithEmail(
-  address: string,
-): Promise<{ error?: string }> {
-  if (!supabase) return { error: 'Cloud sync is not configured.' }
-  const { error } = await supabase.auth.signInWithOtp({
-    email: address.trim(),
-    options: { emailRedirectTo: window.location.origin },
-  })
-  return error ? { error: error.message } : {}
-}
-
-export async function signOut(): Promise<void> {
-  await supabase?.auth.signOut()
-}
-
-/** Force an immediate two-way reconcile (manual "Sync now"). */
-export async function syncNow(): Promise<void> {
-  if (!userId) return
-  if (dirty || pushTimer) {
-    if (pushTimer) {
-      clearTimeout(pushTimer)
-      pushTimer = null
-    }
-    await push()
-  } else {
-    await pull()
-  }
+  subscribeRealtime()
+  await reconcile()
 }

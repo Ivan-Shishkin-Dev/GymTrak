@@ -12,7 +12,8 @@ import { z } from 'zod'
 
 /** One of the 6 rotation days in the ULULUL split. `id` doubles as rotation order (1..6). */
 export const DaySchema = z.object({
-  id: z.number().int(), // 1..6 — also the rotation order
+  id: z.number().int(), // stable primary key (referenced by sessions/exercises)
+  order: z.number().int().optional(), // rotation position; falls back to `id` when absent
   name: z.string(), // 'Upper C'
   focus: z.string(), // 'Shoulder lean'
 })

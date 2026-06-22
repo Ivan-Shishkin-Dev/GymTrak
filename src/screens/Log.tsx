@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
 import { db } from '@/db/db'
 import { finishSession, toggleSet, updateSetLoad } from '@/lib/actions'
+import { useEditMode } from '@/lib/sync'
 import { fmtClock } from '@/lib/format'
 import { inferLoadType } from '@/lib/load'
 import { BackChevron } from '@/components/icons'
@@ -11,6 +12,7 @@ import type { Exercise, WorkoutSet } from '@/db/types'
 
 export function Log() {
   const navigate = useNavigate()
+  const editMode = useEditMode()
   const [now, setNow] = useState(() => Date.now())
   // which set's weight/reps is being edited inline, and the draft text
   const [editingLoad, setEditingLoad] = useState<{ id: string; field: 'weight' | 'reps' } | null>(null)
@@ -76,12 +78,14 @@ export function Log() {
     groups.flatMap((g) => g.sets).find((s) => s.completedAt == null)?.id ?? null
 
   async function onToggle(id: string) {
+    if (!editMode) return
     const nowDone = await toggleSet(id)
     if (nowDone && 'vibrate' in navigator) navigator.vibrate(15)
   }
 
   function openLoad(e: React.MouseEvent, st: WorkoutSet, field: 'weight' | 'reps') {
     e.stopPropagation()
+    if (!editMode) return
     setEditingLoad({ id: st.id, field })
     setLoadDraft(field === 'weight' ? st.weight : st.reps)
   }
@@ -102,12 +106,21 @@ export function Log() {
   }
 
   async function onFinish() {
+    if (!editMode) return
     await finishSession(session!.id)
     navigate('/', { replace: true })
   }
 
   return (
-    <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
+    <div
+      style={{
+        position: 'absolute',
+        inset: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        animation: 'sheet-in 0.36s cubic-bezier(0.16, 1, 0.3, 1) both',
+      }}
+    >
       {/* Header */}
       <div
         style={{
@@ -190,7 +203,9 @@ export function Log() {
         }}
       >
         <div style={{ fontSize: 12, color: 'var(--color-faint)', padding: '0 2px' }}>
-          Loads carried over from last time — tap a weight to edit it, tap the circle when a set's done
+          {editMode
+            ? "Loads carried over from last time — tap a weight to edit it, tap the circle when a set's done"
+            : 'Viewing a live workout — read only'}
         </div>
 
         {groups.map(({ ex, sets: exSets }) => {
@@ -294,12 +309,14 @@ export function Log() {
                           />
                         ) : (
                           <span
-                            className="tabular-nums tap"
-                            onClick={(e) => openLoad(e, st, 'weight')}
+                            className={`tabular-nums${editMode ? ' tap' : ''}`}
+                            onClick={editMode ? (e) => openLoad(e, st, 'weight') : undefined}
                             style={{
                               fontSize: 16,
                               fontWeight: 620,
-                              borderBottom: '1px dashed var(--color-check-border)',
+                              borderBottom: editMode
+                                ? '1px dashed var(--color-check-border)'
+                                : 'none',
                               paddingBottom: 1,
                             }}
                           >
@@ -320,12 +337,14 @@ export function Log() {
                           />
                         ) : (
                           <span
-                            className="tabular-nums tap"
-                            onClick={(e) => openLoad(e, st, 'reps')}
+                            className={`tabular-nums${editMode ? ' tap' : ''}`}
+                            onClick={editMode ? (e) => openLoad(e, st, 'reps') : undefined}
                             style={{
                               fontSize: 14,
                               color: 'var(--color-sub)',
-                              borderBottom: '1px dashed var(--color-separator)',
+                              borderBottom: editMode
+                                ? '1px dashed var(--color-separator)'
+                                : 'none',
                               paddingBottom: 1,
                             }}
                           >
@@ -362,8 +381,8 @@ export function Log() {
         })}
       </div>
 
-      {/* Footer — just the finish action once any set is done */}
-      {done > 0 && (
+      {/* Footer — just the finish action once any set is done (editors only) */}
+      {done > 0 && editMode && (
         <div
           style={{
             borderTop: '1px solid var(--color-card-border)',
@@ -375,7 +394,7 @@ export function Log() {
         >
           <button
             onClick={onFinish}
-            className="tap"
+            className="tap press"
             style={{
               width: '100%',
               height: 52,

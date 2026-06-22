@@ -119,10 +119,3 @@ export async function seedIfEmpty(): Promise<void> {
     await db.exercises.bulkAdd(exercises)
   })
 }
-
-/** Wipe everything and reseed — handy while iterating, exposed via Settings later. */
-export async function resetAndReseed(): Promise<void> {
-  await db.delete()
-  await db.open()
-  await seedIfEmpty()
-}

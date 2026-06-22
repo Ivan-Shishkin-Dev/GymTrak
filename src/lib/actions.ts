@@ -1,9 +1,22 @@
 import { db, uid } from '@/db/db'
 import { dateKey, parseLoad, parseReps, getSetRows } from './format'
+import { isEditMode } from './sync'
+import { dayRank, byDayOrder } from './rotation'
 import type { Day, Exercise, WorkoutSet } from '@/db/types'
 
 /** Open sessions older than this are treated as abandoned, not resumed. */
 const RESUME_WINDOW_MS = 6 * 60 * 60 * 1000 // 6 hours
+
+/**
+ * Write guard. Every mutating action funnels through here, so a view-only visitor
+ * (no edit password) can't change local data and quietly diverge from the public
+ * cloud snapshot. The real enforcement is server-side (RLS + the save_state RPC);
+ * this just keeps the local DB honest. The UI hides edit controls when locked, so
+ * this should never actually throw in normal use.
+ */
+function requireEdit(): void {
+  if (!isEditMode()) throw new Error('Read-only: enter the edit password first.')
+}
 
 /**
  * Ensure there's an in-progress session for `day` and return its id.
@@ -18,6 +31,7 @@ export async function startSession(
   day: Day,
   exercises: Exercise[],
 ): Promise<string> {
+  requireEdit()
   const now = Date.now()
   // Dexie can't index `null`, so scan for open (unfinished) sessions directly.
   const openSessions = (await db.sessions.toArray()).filter(
@@ -72,6 +86,7 @@ export async function startSession(
 
 /** Toggle a set done/undone. Returns true if it is now done (so the caller can start rest). */
 export async function toggleSet(setId: string): Promise<boolean> {
+  requireEdit()
   const set = await db.sets.get(setId)
   if (!set) return false
   const nowDone = set.completedAt == null
@@ -88,6 +103,7 @@ export async function updateSetLoad(
   weight: string,
   reps: string,
 ): Promise<void> {
+  requireEdit()
   const w = weight.trim()
   const r = reps.trim()
   await db.sets.update(setId, {
@@ -106,19 +122,42 @@ export async function updateDay(
   id: number,
   patch: Partial<Pick<Day, 'name' | 'focus'>>,
 ): Promise<void> {
+  requireEdit()
   await db.days.update(id, patch)
 }
 
 /** Append a new rotation day at the end of the cycle (next free id). Returns its id. */
 export async function addDay(): Promise<number> {
+  requireEdit()
   const existing = await db.days.toArray()
   const id = existing.reduce((m, d) => Math.max(m, d.id), 0) + 1
-  await db.days.add({ id, name: 'New day', focus: '' })
+  const order = existing.reduce((m, d) => Math.max(m, dayRank(d)), 0) + 1
+  await db.days.add({ id, order, name: 'New day', focus: '' })
   return id
+}
+
+/**
+ * Reorder a rotation day one slot earlier (-1) or later (+1). Renumbers every
+ * day's `order` to a contiguous 1..n run, which also backfills `order` on legacy
+ * days that only had an `id`. No-op at the ends of the cycle.
+ */
+export async function moveDay(id: number, dir: -1 | 1): Promise<void> {
+  requireEdit()
+  const days = (await db.days.toArray()).sort(byDayOrder)
+  const idx = days.findIndex((d) => d.id === id)
+  const target = idx + dir
+  if (idx === -1 || target < 0 || target >= days.length) return
+  ;[days[idx], days[target]] = [days[target], days[idx]]
+  await db.transaction('rw', db.days, async () => {
+    for (let i = 0; i < days.length; i++) {
+      if (days[i].order !== i + 1) await db.days.update(days[i].id, { order: i + 1 })
+    }
+  })
 }
 
 /** Remove a rotation day and all of its exercises. Past sessions are kept. */
 export async function deleteDay(id: number): Promise<void> {
+  requireEdit()
   await db.transaction('rw', db.days, db.exercises, async () => {
     const exIds = (
       await db.exercises.where('dayId').equals(id).toArray()
@@ -168,6 +207,7 @@ export async function updateExercise(
     >
   >,
 ): Promise<void> {
+  requireEdit()
   const now = Date.now()
   await db.exercises.update(id, { ...patch, updatedAt: now })
   // If a load field changed, mirror the scheme onto same-named exercises on other days.
@@ -183,6 +223,7 @@ export async function addExercise(
   dayId: number,
   partial?: Partial<Omit<Exercise, 'id' | 'dayId' | 'order' | 'updatedAt'>>,
 ): Promise<string> {
+  requireEdit()
   const existing = await db.exercises.where('dayId').equals(dayId).toArray()
   const order = existing.reduce((m, e) => Math.max(m, e.order), 0) + 1
   const id = uid()
@@ -204,7 +245,34 @@ export async function addExercise(
 
 /** Remove an exercise from the library. */
 export async function deleteExercise(id: string): Promise<void> {
+  requireEdit()
   await db.exercises.delete(id)
+}
+
+/**
+ * Reorder an exercise one slot up (-1) or down (+1) within its day. Renumbers the
+ * day's exercises to a contiguous 1..n `order` run. Touches only `order` (not the
+ * load fields), so cross-day links are unaffected. No-op at the ends.
+ */
+export async function moveExercise(id: string, dir: -1 | 1): Promise<void> {
+  requireEdit()
+  const ex = await db.exercises.get(id)
+  if (!ex) return
+  const sibs = (await db.exercises.where('dayId').equals(ex.dayId).toArray()).sort(
+    (a, b) => a.order - b.order,
+  )
+  const idx = sibs.findIndex((e) => e.id === id)
+  const target = idx + dir
+  if (idx === -1 || target < 0 || target >= sibs.length) return
+  ;[sibs[idx], sibs[target]] = [sibs[target], sibs[idx]]
+  const now = Date.now()
+  await db.transaction('rw', db.exercises, async () => {
+    for (let i = 0; i < sibs.length; i++) {
+      if (sibs[i].order !== i + 1) {
+        await db.exercises.update(sibs[i].id, { order: i + 1, updatedAt: now })
+      }
+    }
+  })
 }
 
 /** Drop an abandoned (never-finished) session and its prefilled sets. */
@@ -218,12 +286,6 @@ async function discardSession(sessionId: string): Promise<void> {
   })
 }
 
-/** The single open (unfinished) session, if any. */
-export async function getActiveSession() {
-  const all = await db.sessions.toArray()
-  return all.find((s) => s.finishedAt == null && !s.deleted)
-}
-
 /**
  * Persist a finished session: duration and computed volume; incomplete
  * (un-ticked) sets are removed so history reflects what was done.
@@ -235,6 +297,7 @@ export async function getActiveSession() {
  * (libLoad) is left untouched.
  */
 export async function finishSession(sessionId: string): Promise<void> {
+  requireEdit()
   const session = await db.sessions.get(sessionId)
   if (!session) return
   const sets = await db.sets.where('sessionId').equals(sessionId).toArray()

@@ -2,8 +2,20 @@ import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/db'
 import type { Day, Exercise, LoadType, SetRow } from '@/db/types'
-import { updateDay, addDay, deleteDay, updateExercise, addExercise, deleteExercise } from '@/lib/actions'
+import { ArrowUp, ArrowDown } from 'lucide-react'
+import {
+  updateDay,
+  addDay,
+  deleteDay,
+  moveDay,
+  updateExercise,
+  addExercise,
+  deleteExercise,
+  moveExercise,
+} from '@/lib/actions'
 import { getSetRows } from '@/lib/format'
+import { useEditMode } from '@/lib/sync'
+import { byDayOrder } from '@/lib/rotation'
 import { inferLoadType, canonicalLoad } from '@/lib/load'
 import { ExerciseSummary } from '@/components/ExerciseSummary'
 import { LoadEditor, RepsField } from '@/components/LoadEditor'
@@ -42,11 +54,99 @@ const inputStyle: React.CSSProperties = {
   boxSizing: 'border-box',
 }
 
+/** Right-anchored ghost icon button (the pencil/trash affordances). */
+const iconBtnStyle: React.CSSProperties = {
+  background: 'none',
+  border: 'none',
+  cursor: 'pointer',
+  color: 'var(--color-faint)',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 30,
+  height: 30,
+  borderRadius: 8,
+  padding: 0,
+}
+
+/** Form Save / Cancel buttons, shared by the day and exercise inline editors. */
+const saveBtnStyle: React.CSSProperties = {
+  flex: 1,
+  background: 'var(--color-volt)',
+  color: 'var(--color-on-volt)',
+  border: 'none',
+  borderRadius: 10,
+  padding: '8px 0',
+  fontSize: 13,
+  fontWeight: 660,
+  cursor: 'pointer',
+}
+const cancelBtnStyle: React.CSSProperties = {
+  flex: 1,
+  background: 'transparent',
+  color: 'var(--color-sub)',
+  border: '1px solid var(--color-pill-border)',
+  borderRadius: 10,
+  padding: '8px 0',
+  fontSize: 13,
+  cursor: 'pointer',
+}
+
+/** Up/down reorder pair (edit mode). Dimmed + inert at the ends of the list. */
+function MoveButtons({
+  onMove,
+  canUp,
+  canDown,
+  stopProp = false,
+}: {
+  onMove: (dir: -1 | 1) => void
+  canUp: boolean
+  canDown: boolean
+  stopProp?: boolean
+}) {
+  const Btn = (dir: -1 | 1, can: boolean, Icon: typeof ArrowUp) => (
+    <button
+      className="tap"
+      disabled={!can}
+      aria-label={dir === -1 ? 'Move up' : 'Move down'}
+      onClick={(e) => {
+        if (stopProp) e.stopPropagation()
+        if (can) onMove(dir)
+      }}
+      style={{ ...iconBtnStyle, width: 24, opacity: can ? 1 : 0.3, cursor: can ? 'pointer' : 'default' }}
+    >
+      <Icon size={15} strokeWidth={2.2} />
+    </button>
+  )
+  return (
+    <>
+      {Btn(-1, canUp, ArrowUp)}
+      {Btn(1, canDown, ArrowDown)}
+    </>
+  )
+}
+
 /* ── DayCard ─────────────────────────────────────────────────────────────── */
 
-function DayCard({ day, exercises }: { day: Day; exercises: Exercise[] }) {
-  const [open, setOpen] = useState(true)
-
+function DayCard({
+  day,
+  exercises,
+  open,
+  onSetOpen,
+  editMode,
+  isFirst,
+  isLast,
+  onMoveDay,
+}: {
+  day: Day
+  exercises: Exercise[]
+  open: boolean
+  onSetOpen: (open: boolean) => void
+  editMode: boolean
+  isFirst: boolean
+  isLast: boolean
+  onMoveDay: (dir: -1 | 1) => void
+}) {
   // day-level edit
   const [editingDay, setEditingDay] = useState(false)
   const [dayDraft, setDayDraft] = useState<DayDraft>({ name: day.name, focus: day.focus })
@@ -138,7 +238,7 @@ function DayCard({ day, exercises }: { day: Day; exercises: Exercise[] }) {
     // open the freshly-added exercise in edit mode immediately
     const fresh = await db.exercises.get(id)
     if (fresh) {
-      setOpen(true)
+      onSetOpen(true)
       setEditingExId(id)
       setExDraft(emptyExDraft(fresh))
     }
@@ -162,7 +262,7 @@ function DayCard({ day, exercises }: { day: Day; exercises: Exercise[] }) {
           gap: 8,
           cursor: 'pointer',
         }}
-        onClick={() => !editingDay && setOpen((o) => !o)}
+        onClick={() => !editingDay && onSetOpen(!open)}
       >
         {editingDay ? (
           /* day edit form — expands inline in the header row */
@@ -186,35 +286,10 @@ function DayCard({ day, exercises }: { day: Day; exercises: Exercise[] }) {
               />
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button
-                onClick={saveDayEdit}
-                style={{
-                  flex: 1,
-                  background: 'var(--color-volt)',
-                  color: 'var(--color-on-volt)',
-                  border: 'none',
-                  borderRadius: 10,
-                  padding: '8px 0',
-                  fontSize: 13,
-                  fontWeight: 660,
-                  cursor: 'pointer',
-                }}
-              >
+              <button onClick={saveDayEdit} style={saveBtnStyle}>
                 Save
               </button>
-              <button
-                onClick={cancelDayEdit}
-                style={{
-                  flex: 1,
-                  background: 'transparent',
-                  color: 'var(--color-sub)',
-                  border: '1px solid var(--color-pill-border)',
-                  borderRadius: 10,
-                  padding: '8px 0',
-                  fontSize: 13,
-                  cursor: 'pointer',
-                }}
-              >
+              <button onClick={cancelDayEdit} style={cancelBtnStyle}>
                 Cancel
               </button>
             </div>
@@ -222,28 +297,41 @@ function DayCard({ day, exercises }: { day: Day; exercises: Exercise[] }) {
         ) : (
           <>
             {/* left: name + focus pill */}
-            <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: 15, fontWeight: 660, color: 'var(--color-text)' }}>
-                {day.name}
-              </span>
+            <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
               <span
                 style={{
-                  fontSize: 11,
-                  color: 'var(--color-volt)',
-                  background: 'var(--color-volt-tint)',
-                  border: '1px solid rgba(205,244,99,.18)',
-                  borderRadius: 20,
-                  padding: '2px 9px',
-                  fontWeight: 540,
-                  letterSpacing: '0.01em',
+                  fontSize: 15,
+                  fontWeight: 660,
+                  color: 'var(--color-text)',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
                 }}
               >
-                {day.focus}
+                {day.name}
               </span>
+              {day.focus && (
+                <span
+                  style={{
+                    flexShrink: 0,
+                    fontSize: 11,
+                    color: 'var(--color-volt)',
+                    background: 'var(--color-volt-tint)',
+                    border: '1px solid rgba(205,244,99,.18)',
+                    borderRadius: 20,
+                    padding: '2px 9px',
+                    fontWeight: 540,
+                    letterSpacing: '0.01em',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {day.focus}
+                </span>
+              )}
             </div>
             {/* right: collapse chevron, then edit + delete — pencil/trash stay
                 right-anchored so they line up with the exercise rows below */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
               <div
                 style={{
                   color: 'var(--color-dim)',
@@ -256,47 +344,33 @@ function DayCard({ day, exercises }: { day: Day; exercises: Exercise[] }) {
               >
                 <ChevronDown open={open} />
               </div>
-              <button
-                className="tap"
-                onClick={(e) => { e.stopPropagation(); openDayEdit() }}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: 'var(--color-faint)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  width: 30,
-                  height: 30,
-                  borderRadius: 8,
-                  padding: 0,
-                }}
-              >
-                <PencilGlyph size={13} />
-              </button>
-              <button
-                className="tap"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setConfirmDelDay(true)
-                }}
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: 'var(--color-faint)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  width: 30,
-                  height: 30,
-                  borderRadius: 8,
-                  padding: 0,
-                }}
-              >
-                <TrashGlyph size={13} />
-              </button>
+              {editMode && (
+                <>
+                  <MoveButtons
+                    onMove={onMoveDay}
+                    canUp={!isFirst}
+                    canDown={!isLast}
+                    stopProp
+                  />
+                  <button
+                    className="tap"
+                    onClick={(e) => { e.stopPropagation(); openDayEdit() }}
+                    style={iconBtnStyle}
+                  >
+                    <PencilGlyph size={13} />
+                  </button>
+                  <button
+                    className="tap"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setConfirmDelDay(true)
+                    }}
+                    style={iconBtnStyle}
+                  >
+                    <TrashGlyph size={13} />
+                  </button>
+                </>
+              )}
             </div>
           </>
         )}
@@ -431,35 +505,10 @@ function DayCard({ day, exercises }: { day: Day; exercises: Exercise[] }) {
                     </button>
                   </div>
                   <div style={{ display: 'flex', gap: 8 }}>
-                    <button
-                      onClick={() => saveExEdit(ex)}
-                      style={{
-                        flex: 1,
-                        background: 'var(--color-volt)',
-                        color: 'var(--color-on-volt)',
-                        border: 'none',
-                        borderRadius: 10,
-                        padding: '8px 0',
-                        fontSize: 13,
-                        fontWeight: 660,
-                        cursor: 'pointer',
-                      }}
-                    >
+                    <button onClick={() => saveExEdit(ex)} style={saveBtnStyle}>
                       Save
                     </button>
-                    <button
-                      onClick={cancelExEdit}
-                      style={{
-                        flex: 1,
-                        background: 'transparent',
-                        color: 'var(--color-sub)',
-                        border: '1px solid var(--color-pill-border)',
-                        borderRadius: 10,
-                        padding: '8px 0',
-                        fontSize: 13,
-                        cursor: 'pointer',
-                      }}
-                    >
+                    <button onClick={cancelExEdit} style={cancelBtnStyle}>
                       Cancel
                     </button>
                   </div>
@@ -487,61 +536,47 @@ function DayCard({ day, exercises }: { day: Day; exercises: Exercise[] }) {
                   >
                     {ex.name}
                   </div>
-                  <div
-                    className="tabular-nums"
-                    style={{ fontSize: 12.5, color: 'var(--color-sub)', whiteSpace: 'nowrap' }}
-                  >
-                    <ExerciseSummary ex={ex} />
-                  </div>
+                  {!editMode && (
+                    <div
+                      className="tabular-nums"
+                      style={{ fontSize: 12.5, color: 'var(--color-sub)', whiteSpace: 'nowrap' }}
+                    >
+                      <ExerciseSummary ex={ex} />
+                    </div>
+                  )}
+                  {editMode && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <MoveButtons
+                      onMove={(dir) => moveExercise(ex.id, dir)}
+                      canUp={idx > 0}
+                      canDown={idx < exercises.length - 1}
+                    />
                     <button
                       className="tap"
                       onClick={() => openExEdit(ex)}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        cursor: 'pointer',
-                        color: 'var(--color-faint)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        width: 30,
-                        height: 30,
-                        borderRadius: 8,
-                        padding: 0,
-                      }}
+                      style={iconBtnStyle}
                     >
                       <PencilGlyph size={13} />
                     </button>
                     <button
                       className="tap"
                       onClick={() => handleDeleteExercise(ex.id)}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        cursor: 'pointer',
-                        color: 'var(--color-faint)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        width: 30,
-                        height: 30,
-                        borderRadius: 8,
-                        padding: 0,
-                      }}
+                      style={iconBtnStyle}
                     >
                       <TrashGlyph size={13} />
                     </button>
                   </div>
+                  )}
                 </div>
               )}
             </div>
           ))}
 
           {/* ── add exercise button ───────────────────────────────────── */}
+          {editMode && (
           <div style={{ padding: '6px 18px 4px' }}>
             <button
-              className="tap"
+              className="tap press"
               onClick={handleAddExercise}
               style={{
                 display: 'flex',
@@ -563,6 +598,7 @@ function DayCard({ day, exercises }: { day: Day; exercises: Exercise[] }) {
               Add exercise
             </button>
           </div>
+          )}
         </div>
       )}
 
@@ -648,8 +684,11 @@ function DayCard({ day, exercises }: { day: Day; exercises: Exercise[] }) {
 /* ── Library screen ──────────────────────────────────────────────────────── */
 
 export function Library() {
-  const days = useLiveQuery(() => db.days.orderBy('id').toArray(), [], [])
+  const editMode = useEditMode()
+  const days = useLiveQuery(async () => (await db.days.toArray()).sort(byDayOrder), [], [])
   const exercises = useLiveQuery(() => db.exercises.toArray(), [], [])
+  // Accordion: at most one day expanded; null = all collapsed (the default).
+  const [openDayId, setOpenDayId] = useState<number | null>(null)
 
   return (
     <div className="screen">
@@ -662,36 +701,50 @@ export function Library() {
         </div>
       </div>
 
-      {days.map((day) => {
+      {days.map((day, i) => {
         const rows = exercises
           .filter((e) => e.dayId === day.id)
           .sort((a, b) => a.order - b.order)
-        return <DayCard key={day.id} day={day} exercises={rows} />
+        return (
+          <DayCard
+            key={day.id}
+            day={day}
+            exercises={rows}
+            open={openDayId === day.id}
+            onSetOpen={(o) => setOpenDayId(o ? day.id : null)}
+            editMode={editMode}
+            isFirst={i === 0}
+            isLast={i === days.length - 1}
+            onMoveDay={(dir) => moveDay(day.id, dir)}
+          />
+        )
       })}
 
-      <button
-        className="tap"
-        onClick={() => addDay()}
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 8,
-          background: 'var(--color-volt-tint)',
-          border: '1px solid rgba(205,244,99,.18)',
-          borderRadius: 18,
-          padding: '15px 0',
-          color: 'var(--color-volt)',
-          fontSize: 14,
-          fontWeight: 600,
-          cursor: 'pointer',
-          width: '100%',
-          marginTop: 4,
-        }}
-      >
-        <PlusGlyph size={13} />
-        Add day
-      </button>
+      {editMode && (
+        <button
+          className="tap press"
+          onClick={() => addDay()}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: 8,
+            background: 'var(--color-volt-tint)',
+            border: '1px solid rgba(205,244,99,.18)',
+            borderRadius: 18,
+            padding: '15px 0',
+            color: 'var(--color-volt)',
+            fontSize: 14,
+            fontWeight: 600,
+            cursor: 'pointer',
+            width: '100%',
+            marginTop: 4,
+          }}
+        >
+          <PlusGlyph size={13} />
+          Add day
+        </button>
+      )}
     </div>
   )
 }

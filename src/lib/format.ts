@@ -1,4 +1,4 @@
-import { differenceInCalendarDays, format, parseISO } from 'date-fns'
+import { format } from 'date-fns'
 import type { SetRow } from '@/db/types'
 
 /** Seconds → "m:ss" (used by the workout elapsed timer). */
@@ -12,16 +12,6 @@ export function fmtClock(totalSec: number): string {
 /** Local 'yyyy-MM-dd' key for a Date. */
 export function dateKey(d: Date): string {
   return format(d, 'yyyy-MM-dd')
-}
-
-/** Friendly relative label for a session date: Today / Yesterday / Wed / Sat Jun 6. */
-export function relativeWhen(isoDate: string, now = new Date()): string {
-  const d = parseISO(isoDate)
-  const diff = differenceInCalendarDays(now, d)
-  if (diff === 0) return 'Today'
-  if (diff === 1) return 'Yesterday'
-  if (diff > 1 && diff < 7) return format(d, 'EEE') // Wed
-  return format(d, 'EEE MMM d') // Sat Jun 6
 }
 
 /**

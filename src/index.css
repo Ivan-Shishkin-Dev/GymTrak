@@ -74,6 +74,8 @@ body {
     gap: 14px;
     padding: calc(74px + env(safe-area-inset-top)) 20px
       calc(130px + env(safe-area-inset-bottom));
+    /* Fade + gentle rise on entry — replays on every navigation (screens remount) */
+    animation: screen-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
   }
 
   /* The standard near-black card with a 1px border — depth via border, no shadow */
@@ -98,6 +100,67 @@ body {
   .tap:active {
     opacity: 0.7;
   }
+
+  /* Press spring — scale-down on tap, for buttons & pills (pairs with .tap) */
+  .press {
+    transition: transform 0.13s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .press:active {
+    transform: scale(0.95);
+  }
+
+  /* Shimmer placeholder while first-load queries resolve */
+  .skeleton {
+    background: linear-gradient(
+      100deg,
+      rgba(255, 255, 255, 0.04) 38%,
+      rgba(255, 255, 255, 0.09) 50%,
+      rgba(255, 255, 255, 0.04) 62%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.3s ease-in-out infinite;
+    border-radius: 12px;
+  }
+
+  /* Identity-gate password field — volt focus glow, red on a bad key */
+  .gate-input {
+    width: 100%;
+    background: var(--color-bg);
+    border: 1px solid var(--color-pill-border);
+    border-radius: 14px;
+    color: var(--color-text);
+    padding: 14px;
+    font-size: 15px;
+    font-family: inherit;
+    text-align: center;
+    letter-spacing: 0.04em;
+    outline: none;
+    /* Mask the value ourselves so the field isn't a "real" password input —
+       keeps the browser's autofill key icon off it. */
+    -webkit-text-security: disc;
+    text-security: disc;
+    transition: border-color 0.16s ease, box-shadow 0.16s ease;
+  }
+  .gate-input::placeholder {
+    color: var(--color-dim);
+    letter-spacing: normal;
+  }
+  .gate-input:focus {
+    border-color: var(--color-volt);
+    box-shadow: 0 0 0 3px var(--color-volt-tint);
+  }
+  .gate-input[data-error='true'] {
+    border-color: #ff5a5a;
+  }
+  .gate-input[data-error='true']:focus {
+    box-shadow: 0 0 0 3px rgba(255, 90, 90, 0.16);
+  }
+}
+
+/* Keyboard focus ring — invisible to mouse/touch, clear for keyboard users */
+.tap:focus-visible {
+  outline: 2px solid var(--color-volt);
+  outline-offset: 2px;
 }
 
 /* Spring the checkmark when a set is marked complete */
@@ -110,5 +173,81 @@ body {
   }
   100% {
     transform: scale(1);
+  }
+}
+
+/* Screen enter — fade + gentle rise (Home / Library) */
+@keyframes screen-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Sheet enter — the Log view rises from the bottom like a sheet */
+@keyframes sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(46px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Drives the .skeleton shimmer sweep */
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/* Identity gate — dim+blur backdrop fades up, card settles in */
+@keyframes gate-overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes gate-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* The lock springs open the moment the right key lands */
+@keyframes lock-pop {
+  0% {
+    transform: scale(0.55);
+  }
+  55% {
+    transform: scale(1.18);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Honor reduced-motion everywhere — no app-wide animation otherwise */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
   }
 }
