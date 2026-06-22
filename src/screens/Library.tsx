@@ -523,18 +523,35 @@ function DayCard({
                     gap: 8,
                   }}
                 >
-                  <div
-                    style={{
-                      flex: 1,
-                      minWidth: 0,
-                      fontSize: 13.5,
-                      color: 'var(--color-d9)',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {ex.name}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                      style={{
+                        fontSize: 13.5,
+                        color: 'var(--color-d9)',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {ex.name}
+                    </div>
+                    {/* In edit mode the controls take the right side, so the load
+                        reads on its own line under the name (truncated if long). */}
+                    {editMode && (
+                      <div
+                        className="tabular-nums"
+                        style={{
+                          marginTop: 2,
+                          fontSize: 11.5,
+                          color: 'var(--color-sub)',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        <ExerciseSummary ex={ex} />
+                      </div>
+                    )}
                   </div>
                   {!editMode && (
                     <div
