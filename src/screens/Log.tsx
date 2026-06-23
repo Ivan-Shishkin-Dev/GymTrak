@@ -2,13 +2,35 @@ import { useEffect, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
 import { db } from '@/db/db'
-import { finishSession, toggleSet, updateSetLoad } from '@/lib/actions'
+import {
+  finishSession,
+  toggleSet,
+  updateSetLoad,
+  updateExercise,
+  moveExercise,
+  addSetToSession,
+  removeSet,
+  addExerciseToSession,
+  removeExerciseFromSession,
+} from '@/lib/actions'
 import { useEditMode } from '@/lib/sync'
 import { fmtClock } from '@/lib/format'
 import { inferLoadType } from '@/lib/load'
-import { BackChevron } from '@/components/icons'
+import { BackChevron, PlusGlyph, TrashGlyph } from '@/components/icons'
+import { MoveButtons } from '@/components/MoveButtons'
 import { LoadEditor, RepsField } from '@/components/LoadEditor'
-import type { Exercise, WorkoutSet } from '@/db/types'
+import type { Exercise, LoadType, WorkoutSet } from '@/db/types'
+
+type Group = { ex: Exercise; sets: WorkoutSet[] }
+
+/** Compact load-type chips for switching an exercise's load notation in-workout. */
+const LOAD_TYPES: { key: LoadType; label: string }[] = [
+  { key: 'weight', label: 'Weight' },
+  { key: 'machine', label: 'Machine' },
+  { key: 'plates', label: 'Plates' },
+  { key: 'bodyweight', label: 'Body' },
+  { key: 'free', label: 'Other' },
+]
 
 export function Log() {
   const navigate = useNavigate()
@@ -19,6 +41,10 @@ export function Log() {
   const [loadDraft, setLoadDraft] = useState('')
   // finished exercises the user has tapped back open to tweak
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
+  // structural edit mode within the workout (reorder / add-remove sets & exercises)
+  const [editing, setEditing] = useState(false)
+  // inline exercise rename in progress
+  const [nameDraft, setNameDraft] = useState<{ id: string; text: string } | null>(null)
 
   const open = useLiveQuery(
     () => db.sessions.filter((s) => s.finishedAt == null && !s.deleted).toArray(),
@@ -60,7 +86,7 @@ export function Log() {
 
   if (!session || !day) return null
 
-  const groups = exercises
+  const groups: Group[] = exercises
     .map((ex) => ({
       ex,
       sets: sets
@@ -68,6 +94,10 @@ export function Log() {
         .sort((a, b) => a.setIndex - b.setIndex),
     }))
     .filter((g) => g.sets.length > 0)
+
+  const isDoneGroup = (g: Group) => g.sets.every((s) => s.completedAt != null)
+  const activeGroups = groups.filter((g) => !isDoneGroup(g))
+  const doneGroups = groups.filter(isDoneGroup)
 
   const done = sets.filter((s) => s.completedAt != null).length
   const total = sets.length
@@ -77,8 +107,17 @@ export function Log() {
   const activeSetId =
     groups.flatMap((g) => g.sets).find((s) => s.completedAt == null)?.id ?? null
 
-  async function onToggle(id: string) {
-    if (!editMode) return
+  async function onToggle(id: string, exId: string) {
+    if (!editMode || editing) return
+    // A set can only be tapped from the expanded view, so dropping its exercise
+    // from `expanded` here lets it re-collapse into the Done pile once complete
+    // again (and is harmless while it's active — active cards always show in full).
+    setExpanded((prev) => {
+      if (!prev.has(exId)) return prev
+      const next = new Set(prev)
+      next.delete(exId)
+      return next
+    })
     const nowDone = await toggleSet(id)
     if (nowDone && 'vibrate' in navigator) navigator.vibrate(15)
   }
@@ -105,10 +144,288 @@ export function Log() {
     setLoadDraft('')
   }
 
+  async function commitName() {
+    const draft = nameDraft
+    setNameDraft(null)
+    if (!draft) return
+    const text = draft.text.trim()
+    if (text) await updateExercise(draft.id, { name: text })
+  }
+
   async function onFinish() {
     if (!editMode) return
     await finishSession(session!.id)
     navigate('/', { replace: true })
+  }
+
+  async function onAddExercise() {
+    const id = await addExerciseToSession(session!.id, session!.dayId)
+    setNameDraft({ id, text: 'New exercise' })
+  }
+
+  /* ── one exercise card with its set rows ──────────────────────────────────
+     `editable` adds the in-workout structural controls (reorder / rename / type
+     / add-remove sets). Done-but-reopened cards render with editable=false.
+     Called directly (not as <JSX/>) so it stays inline in this render — a nested
+     component would get a fresh identity each render and remount, dropping focus
+     from the inline editors. */
+  function renderCard(g: Group, fullIdx: number, editable: boolean) {
+    const { ex, sets: exSets } = g
+    const loadType = ex.loadType ?? inferLoadType(ex.weight)
+    const renaming = nameDraft?.id === ex.id
+
+    return (
+      <div key={ex.id} className="card" style={{ borderRadius: 22, padding: '8px 18px 12px' }}>
+        {/* header — name, plus reorder / delete when editing */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 0 4px' }}>
+          {editable && (
+            <div style={{ display: 'flex', flexShrink: 0, marginLeft: -4 }}>
+              <MoveButtons
+                onMove={(dir) => moveExercise(ex.id, dir)}
+                canUp={fullIdx > 0}
+                canDown={fullIdx < groups.length - 1}
+              />
+            </div>
+          )}
+          {renaming ? (
+            <input
+              value={nameDraft!.text}
+              autoFocus
+              onChange={(e) => setNameDraft({ id: ex.id, text: e.target.value })}
+              onBlur={commitName}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') commitName()
+                if (e.key === 'Escape') setNameDraft(null)
+              }}
+              style={{
+                flex: 1,
+                background: 'var(--color-bg)',
+                border: '1px solid var(--color-volt)',
+                borderRadius: 8,
+                color: 'var(--color-text)',
+                padding: '5px 8px',
+                fontSize: 15,
+                fontWeight: 640,
+                outline: 'none',
+              }}
+            />
+          ) : (
+            <div
+              className={editable ? 'tap' : undefined}
+              onClick={editable ? () => setNameDraft({ id: ex.id, text: ex.name }) : undefined}
+              style={{ flex: 1, fontSize: 15, fontWeight: 640 }}
+            >
+              {ex.name}
+            </div>
+          )}
+          {editable && (
+            <button
+              className="tap"
+              aria-label="Remove exercise"
+              onClick={() => removeExerciseFromSession(session!.id, ex.id)}
+              style={{
+                flexShrink: 0,
+                background: 'none',
+                border: 'none',
+                color: 'var(--color-faint)',
+                display: 'flex',
+                alignItems: 'center',
+                cursor: 'pointer',
+                padding: 4,
+              }}
+            >
+              <TrashGlyph />
+            </button>
+          )}
+        </div>
+
+        {/* load-type chips — only while editing */}
+        {editable && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, padding: '2px 0 8px' }}>
+            {LOAD_TYPES.map(({ key, label }) => {
+              const active = loadType === key
+              return (
+                <button
+                  key={key}
+                  className="tap"
+                  onClick={() => updateExercise(ex.id, { loadType: key })}
+                  style={{
+                    height: 26,
+                    padding: '0 10px',
+                    borderRadius: 13,
+                    border: active ? '1px solid var(--color-volt)' : '1px solid var(--color-pill-border)',
+                    background: active ? 'var(--color-volt-tint)' : 'transparent',
+                    color: active ? 'var(--color-volt)' : 'var(--color-sub)',
+                    fontSize: 11.5,
+                    fontWeight: 620,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+        )}
+
+        {/* set rows */}
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          {exSets.map((st, i) => {
+            const isDone = st.completedAt != null
+            const isActive = st.id === activeSetId
+            const isEditWeight = editingLoad?.id === st.id && editingLoad.field === 'weight'
+            const isEditReps = editingLoad?.id === st.id && editingLoad.field === 'reps'
+            return (
+              <div
+                key={st.id}
+                onClick={editable ? undefined : () => onToggle(st.id, ex.id)}
+                className={editable ? undefined : 'tap'}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12,
+                  height: 46,
+                  marginInline: -10,
+                  paddingInline: 10,
+                  borderRadius: 12,
+                  opacity: isDone && !editable ? 0.4 : 1,
+                  background: isActive && !editable ? 'var(--color-volt-tint)' : 'transparent',
+                  transition: 'opacity 0.2s ease, background 0.2s ease',
+                }}
+              >
+                <div style={{ width: 42, fontSize: 12, color: 'var(--color-sub)' }}>
+                  Set {i + 1}
+                </div>
+                {/* weight — tap to edit; empty space in this cell still toggles the set */}
+                <div style={{ flex: 1 }}>
+                  {isEditWeight ? (
+                    <LoadEditor
+                      compact
+                      autoFocus
+                      value={loadDraft}
+                      loadType={loadType}
+                      onChange={setLoadDraft}
+                      onCommit={() => commitLoad(st)}
+                      onCancel={cancelLoad}
+                    />
+                  ) : (
+                    <span
+                      className={`tabular-nums${editMode ? ' tap' : ''}`}
+                      onClick={editMode ? (e) => openLoad(e, st, 'weight') : undefined}
+                      style={{
+                        fontSize: 16,
+                        fontWeight: 620,
+                        borderBottom: editMode ? '1px dashed var(--color-check-border)' : 'none',
+                        paddingBottom: 1,
+                      }}
+                    >
+                      {st.weight || '—'}
+                    </span>
+                  )}
+                </div>
+                {/* reps — tap to edit */}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', minWidth: 48 }}>
+                  {isEditReps ? (
+                    <RepsField
+                      compact
+                      autoFocus
+                      value={loadDraft}
+                      onChange={setLoadDraft}
+                      onCommit={() => commitLoad(st)}
+                      onCancel={cancelLoad}
+                    />
+                  ) : (
+                    <span
+                      className={`tabular-nums${editMode ? ' tap' : ''}`}
+                      onClick={editMode ? (e) => openLoad(e, st, 'reps') : undefined}
+                      style={{
+                        fontSize: 14,
+                        color: 'var(--color-sub)',
+                        borderBottom: editMode ? '1px dashed var(--color-separator)' : 'none',
+                        paddingBottom: 1,
+                      }}
+                    >
+                      {st.reps}
+                    </span>
+                  )}
+                </div>
+                {editable ? (
+                  <button
+                    className="tap"
+                    aria-label="Remove set"
+                    disabled={exSets.length <= 1}
+                    onClick={() => removeSet(st.id)}
+                    style={{
+                      width: 28,
+                      height: 28,
+                      borderRadius: '50%',
+                      border: '1.5px solid var(--color-check-border)',
+                      background: 'transparent',
+                      color: 'var(--color-faint)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                      opacity: exSets.length <= 1 ? 0.3 : 1,
+                      cursor: exSets.length <= 1 ? 'default' : 'pointer',
+                    }}
+                  >
+                    <TrashGlyph size={12} />
+                  </button>
+                ) : (
+                  <div
+                    style={{
+                      width: 28,
+                      height: 28,
+                      borderRadius: '50%',
+                      border: `1.5px solid ${isDone || isActive ? 'var(--color-volt)' : 'var(--color-check-border)'}`,
+                      background: isDone ? 'var(--color-volt)' : 'transparent',
+                      boxShadow: isActive && !isDone ? '0 0 0 4px var(--color-volt-tint)' : 'none',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 14,
+                      fontWeight: 800,
+                      color: isDone ? 'var(--color-on-volt)' : 'transparent',
+                      animation: isDone ? 'set-pop 0.2s ease' : undefined,
+                      flexShrink: 0,
+                    }}
+                  >
+                    ✓
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+
+        {/* add-set — only while editing */}
+        {editable && (
+          <button
+            className="tap"
+            onClick={() => addSetToSession(session!.id, ex.id)}
+            style={{
+              marginTop: 6,
+              width: '100%',
+              height: 38,
+              borderRadius: 12,
+              border: '1px dashed var(--color-pill-border)',
+              background: 'transparent',
+              color: 'var(--color-sub)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 6,
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            <PlusGlyph size={12} /> Add set
+          </button>
+        )}
+      </div>
+    )
   }
 
   return (
@@ -154,6 +471,27 @@ export function Log() {
             {day.focus} · {done} of {total} sets
           </div>
         </div>
+        {/* Edit toggle — structural editing of the live workout */}
+        {editMode && (
+          <button
+            onClick={() => {
+              setNameDraft(null)
+              setEditing((v) => !v)
+            }}
+            className="card tap"
+            style={{
+              fontSize: 13,
+              fontWeight: 640,
+              borderRadius: 99,
+              borderColor: editing ? 'var(--color-volt)' : 'var(--color-pill-border)',
+              color: editing ? 'var(--color-volt)' : 'var(--color-text)',
+              background: editing ? 'var(--color-volt-tint)' : undefined,
+              padding: '8px 14px',
+            }}
+          >
+            {editing ? 'Done' : 'Edit'}
+          </button>
+        )}
         {/* Total elapsed time for the workout */}
         <div
           className="card tabular-nums"
@@ -205,186 +543,118 @@ export function Log() {
         }}
       >
         <div style={{ fontSize: 12, color: 'var(--color-faint)', padding: '0 2px' }}>
-          {editMode
-            ? "Loads carried over from last time — tap a weight to edit it, tap the circle when a set's done"
-            : 'Viewing a live workout — read only'}
+          {!editMode
+            ? 'Viewing a live workout — read only'
+            : editing
+              ? 'Editing — reorder, rename, change type, and add or remove sets and exercises'
+              : "Loads carried over from last time — tap a weight to edit it, tap the circle when a set's done"}
         </div>
 
-        {groups.map(({ ex, sets: exSets }) => {
-          const exDone = exSets.every((s) => s.completedAt != null)
-          const collapsed = exDone && !expanded.has(ex.id)
+        {/* Active exercises (not yet fully done) */}
+        {activeGroups.map((g) => renderCard(g, groups.indexOf(g), editing))}
 
-          // Finished exercise → compact one-line summary; tap to reopen and tweak.
-          if (collapsed) {
-            return (
+        {/* Add exercise — only while editing */}
+        {editing && (
+          <button
+            className="tap press"
+            onClick={onAddExercise}
+            style={{
+              width: '100%',
+              height: 46,
+              borderRadius: 16,
+              border: '1px dashed var(--color-pill-border)',
+              background: 'transparent',
+              color: 'var(--color-sub)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+              fontSize: 14,
+              fontWeight: 640,
+              cursor: 'pointer',
+            }}
+          >
+            <PlusGlyph size={14} /> Add exercise
+          </button>
+        )}
+
+        {/* Done pile — finished exercises drop here; tap to reopen and tweak */}
+        {doneGroups.length > 0 && (
+          <>
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                padding: '8px 2px 0',
+              }}
+            >
               <div
-                key={ex.id}
-                onClick={() => setExpanded((prev) => new Set(prev).add(ex.id))}
-                className="card tap"
                 style={{
-                  borderRadius: 22,
-                  padding: '14px 18px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12,
-                  borderColor: 'var(--color-volt-tint)',
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: 11,
+                  letterSpacing: '0.12em',
+                  color: 'var(--color-faint)',
                 }}
               >
+                DONE · {doneGroups.length}
+              </div>
+              <div style={{ flex: 1, height: 1, background: 'var(--color-separator)' }} />
+            </div>
+
+            {doneGroups.map((g) =>
+              expanded.has(g.ex.id) ? (
+                // reopened to tweak — full set rows so you can untick a set
+                renderCard(g, groups.indexOf(g), false)
+              ) : (
                 <div
+                  key={g.ex.id}
+                  onClick={() => setExpanded((prev) => new Set(prev).add(g.ex.id))}
+                  className="card tap"
                   style={{
-                    width: 24,
-                    height: 24,
-                    borderRadius: '50%',
-                    background: 'var(--color-volt)',
-                    color: 'var(--color-on-volt)',
+                    borderRadius: 22,
+                    padding: '14px 18px',
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 13,
-                    fontWeight: 800,
-                    flexShrink: 0,
+                    gap: 12,
+                    borderColor: 'var(--color-volt-tint)',
                   }}
                 >
-                  ✓
+                  <div
+                    style={{
+                      width: 24,
+                      height: 24,
+                      borderRadius: '50%',
+                      background: 'var(--color-volt)',
+                      color: 'var(--color-on-volt)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: 13,
+                      fontWeight: 800,
+                      flexShrink: 0,
+                    }}
+                  >
+                    ✓
+                  </div>
+                  <div style={{ flex: 1, fontSize: 15, fontWeight: 600, color: 'var(--color-sub)' }}>
+                    {g.ex.name}
+                  </div>
+                  <div
+                    className="tabular-nums"
+                    style={{ fontSize: 12, color: 'var(--color-dim)', fontFamily: 'var(--font-mono)' }}
+                  >
+                    {g.sets.length} {g.sets.length === 1 ? 'set' : 'sets'}
+                  </div>
                 </div>
-                <div style={{ flex: 1, fontSize: 15, fontWeight: 600, color: 'var(--color-sub)' }}>
-                  {ex.name}
-                </div>
-                <div
-                  className="tabular-nums"
-                  style={{ fontSize: 12, color: 'var(--color-dim)', fontFamily: 'var(--font-mono)' }}
-                >
-                  {exSets.length} {exSets.length === 1 ? 'set' : 'sets'}
-                </div>
-              </div>
-            )
-          }
-
-          return (
-            <div
-              key={ex.id}
-              className="card"
-              style={{ borderRadius: 22, padding: '8px 18px 12px' }}
-            >
-              <div style={{ padding: '10px 0 4px' }}>
-                <div style={{ fontSize: 15, fontWeight: 640 }}>{ex.name}</div>
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                {exSets.map((st, i) => {
-                  const isDone = st.completedAt != null
-                  const isActive = st.id === activeSetId
-                  const isEditWeight = editingLoad?.id === st.id && editingLoad.field === 'weight'
-                  const isEditReps = editingLoad?.id === st.id && editingLoad.field === 'reps'
-                  return (
-                    // Toggle row — tapping anywhere here marks the set done/undone
-                    <div
-                      key={st.id}
-                      onClick={() => onToggle(st.id)}
-                      className="tap"
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 12,
-                        height: 46,
-                        marginInline: -10,
-                        paddingInline: 10,
-                        borderRadius: 12,
-                        opacity: isDone ? 0.4 : 1,
-                        background: isActive ? 'var(--color-volt-tint)' : 'transparent',
-                        transition: 'opacity 0.2s ease, background 0.2s ease',
-                      }}
-                    >
-                      <div style={{ width: 42, fontSize: 12, color: 'var(--color-sub)' }}>
-                        Set {i + 1}
-                      </div>
-                      {/* weight — tap to edit; empty space in this cell still toggles the set */}
-                      <div style={{ flex: 1 }}>
-                        {isEditWeight ? (
-                          <LoadEditor
-                            compact
-                            autoFocus
-                            value={loadDraft}
-                            loadType={ex.loadType ?? inferLoadType(ex.weight)}
-                            onChange={setLoadDraft}
-                            onCommit={() => commitLoad(st)}
-                            onCancel={cancelLoad}
-                          />
-                        ) : (
-                          <span
-                            className={`tabular-nums${editMode ? ' tap' : ''}`}
-                            onClick={editMode ? (e) => openLoad(e, st, 'weight') : undefined}
-                            style={{
-                              fontSize: 16,
-                              fontWeight: 620,
-                              borderBottom: editMode
-                                ? '1px dashed var(--color-check-border)'
-                                : 'none',
-                              paddingBottom: 1,
-                            }}
-                          >
-                            {st.weight || '—'}
-                          </span>
-                        )}
-                      </div>
-                      {/* reps — tap to edit */}
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', minWidth: 48 }}>
-                        {isEditReps ? (
-                          <RepsField
-                            compact
-                            autoFocus
-                            value={loadDraft}
-                            onChange={setLoadDraft}
-                            onCommit={() => commitLoad(st)}
-                            onCancel={cancelLoad}
-                          />
-                        ) : (
-                          <span
-                            className={`tabular-nums${editMode ? ' tap' : ''}`}
-                            onClick={editMode ? (e) => openLoad(e, st, 'reps') : undefined}
-                            style={{
-                              fontSize: 14,
-                              color: 'var(--color-sub)',
-                              borderBottom: editMode
-                                ? '1px dashed var(--color-separator)'
-                                : 'none',
-                              paddingBottom: 1,
-                            }}
-                          >
-                            {st.reps}
-                          </span>
-                        )}
-                      </div>
-                      <div
-                        style={{
-                          width: 28,
-                          height: 28,
-                          borderRadius: '50%',
-                          border: `1.5px solid ${isDone || isActive ? 'var(--color-volt)' : 'var(--color-check-border)'}`,
-                          background: isDone ? 'var(--color-volt)' : 'transparent',
-                          boxShadow: isActive && !isDone ? '0 0 0 4px var(--color-volt-tint)' : 'none',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontSize: 14,
-                          fontWeight: 800,
-                          color: isDone ? 'var(--color-on-volt)' : 'transparent',
-                          animation: isDone ? 'set-pop 0.2s ease' : undefined,
-                          flexShrink: 0,
-                        }}
-                      >
-                        ✓
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )
-        })}
+              ),
+            )}
+          </>
+        )}
       </div>
 
       {/* Footer — just the finish action once any set is done (editors only) */}
-      {done > 0 && editMode && (
+      {done > 0 && editMode && !editing && (
         <div
           style={{
             borderTop: '1px solid var(--color-card-border)',

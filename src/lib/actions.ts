@@ -275,6 +275,99 @@ export async function moveExercise(id: string, dir: -1 | 1): Promise<void> {
   })
 }
 
+/* ── In-workout structural editing ───────────────────────────────────────── */
+
+/**
+ * Add one more set to an exercise mid-workout. Appends a `WorkoutSet` after the
+ * exercise's existing sets in this session, copying the last set's load/reps as a
+ * sensible default. The Library set count catches up on finish (carry-over).
+ */
+export async function addSetToSession(
+  sessionId: string,
+  exerciseId: string,
+): Promise<void> {
+  requireEdit()
+  const exSets = (await db.sets.where('sessionId').equals(sessionId).toArray())
+    .filter((s) => s.exerciseId === exerciseId)
+    .sort((a, b) => a.setIndex - b.setIndex)
+  const last = exSets[exSets.length - 1]
+  const now = Date.now()
+  await db.sets.add({
+    id: uid(),
+    sessionId,
+    exerciseId,
+    exerciseName: last?.exerciseName ?? '',
+    setIndex: (last?.setIndex ?? -1) + 1,
+    weight: last?.weight ?? '',
+    reps: last?.reps ?? '× 6',
+    weightNum: last ? parseLoad(last.weight) : null,
+    repsNum: last ? parseReps(last.reps) : null,
+    completedAt: null,
+    updatedAt: now,
+  })
+}
+
+/** Remove a single set from the live workout. Keeps at least one set per exercise. */
+export async function removeSet(setId: string): Promise<void> {
+  requireEdit()
+  const set = await db.sets.get(setId)
+  if (!set) return
+  const exSets = (await db.sets.where('sessionId').equals(set.sessionId).toArray()).filter(
+    (s) => s.exerciseId === set.exerciseId,
+  )
+  if (exSets.length <= 1) return // last set — delete the exercise instead
+  await db.sets.delete(setId)
+}
+
+/**
+ * Add a new exercise to the day mid-workout. Creates the Library entry (so it
+ * sticks for next time) and seeds this session's sets from it so it shows up in
+ * the live workout immediately. Returns the new exercise id.
+ */
+export async function addExerciseToSession(
+  sessionId: string,
+  dayId: number,
+): Promise<string> {
+  requireEdit()
+  const exId = await addExercise(dayId)
+  const ex = await db.exercises.get(exId)
+  if (!ex) return exId
+  const now = Date.now()
+  const sets: WorkoutSet[] = getSetRows(ex).map((row, i) => ({
+    id: uid(),
+    sessionId,
+    exerciseId: ex.id,
+    exerciseName: ex.name,
+    setIndex: i,
+    weight: row.weight,
+    reps: row.reps,
+    weightNum: parseLoad(row.weight),
+    repsNum: parseReps(row.reps),
+    completedAt: null,
+    updatedAt: now,
+  }))
+  if (sets.length) await db.sets.bulkAdd(sets)
+  return exId
+}
+
+/**
+ * Remove an exercise from the live workout and the plan. Drops its sets in this
+ * session, then deletes the Library entry.
+ */
+export async function removeExerciseFromSession(
+  sessionId: string,
+  exerciseId: string,
+): Promise<void> {
+  requireEdit()
+  const ids = (await db.sets.where('sessionId').equals(sessionId).toArray())
+    .filter((s) => s.exerciseId === exerciseId)
+    .map((s) => s.id)
+  await db.transaction('rw', db.sets, db.exercises, async () => {
+    if (ids.length) await db.sets.bulkDelete(ids)
+    await db.exercises.delete(exerciseId)
+  })
+}
+
 /** Drop an abandoned (never-finished) session and its prefilled sets. */
 async function discardSession(sessionId: string): Promise<void> {
   await db.transaction('rw', db.sessions, db.sets, async () => {

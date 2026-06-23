@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/db'
 import type { Day, Exercise, LoadType, SetRow } from '@/db/types'
-import { ArrowUp, ArrowDown } from 'lucide-react'
 import {
   updateDay,
   addDay,
@@ -19,6 +18,7 @@ import { byDayOrder } from '@/lib/rotation'
 import { inferLoadType, canonicalLoad } from '@/lib/load'
 import { ExerciseSummary } from '@/components/ExerciseSummary'
 import { LoadEditor, RepsField } from '@/components/LoadEditor'
+import { MoveButtons } from '@/components/MoveButtons'
 import { PencilGlyph, PlusGlyph, TrashGlyph, ChevronDown } from '@/components/icons'
 
 /* ── local state shapes ──────────────────────────────────────────────────── */
@@ -90,40 +90,6 @@ const cancelBtnStyle: React.CSSProperties = {
   padding: '8px 0',
   fontSize: 13,
   cursor: 'pointer',
-}
-
-/** Up/down reorder pair (edit mode). Dimmed + inert at the ends of the list. */
-function MoveButtons({
-  onMove,
-  canUp,
-  canDown,
-  stopProp = false,
-}: {
-  onMove: (dir: -1 | 1) => void
-  canUp: boolean
-  canDown: boolean
-  stopProp?: boolean
-}) {
-  const Btn = (dir: -1 | 1, can: boolean, Icon: typeof ArrowUp) => (
-    <button
-      className="tap"
-      disabled={!can}
-      aria-label={dir === -1 ? 'Move up' : 'Move down'}
-      onClick={(e) => {
-        if (stopProp) e.stopPropagation()
-        if (can) onMove(dir)
-      }}
-      style={{ ...iconBtnStyle, width: 24, opacity: can ? 1 : 0.3, cursor: can ? 'pointer' : 'default' }}
-    >
-      <Icon size={15} strokeWidth={2.2} />
-    </button>
-  )
-  return (
-    <>
-      {Btn(-1, canUp, ArrowUp)}
-      {Btn(1, canDown, ArrowDown)}
-    </>
-  )
 }
 
 /* ── DayCard ─────────────────────────────────────────────────────────────── */
