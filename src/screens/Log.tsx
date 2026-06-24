@@ -14,9 +14,11 @@ import {
   removeExerciseFromSession,
 } from '@/lib/actions'
 import { useEditMode } from '@/lib/sync'
+import { startRest, stopRest } from '@/lib/restTimer'
 import { fmtClock } from '@/lib/format'
 import { inferLoadType } from '@/lib/load'
 import { BackChevron, PlusGlyph, TrashGlyph } from '@/components/icons'
+import { RestBar } from '@/components/RestBar'
 import { MoveButtons } from '@/components/MoveButtons'
 import { LoadEditor, RepsField } from '@/components/LoadEditor'
 import type { Exercise, LoadType, WorkoutSet } from '@/db/types'
@@ -119,7 +121,10 @@ export function Log() {
       return next
     })
     const nowDone = await toggleSet(id)
-    if (nowDone && 'vibrate' in navigator) navigator.vibrate(15)
+    if (nowDone) {
+      if ('vibrate' in navigator) navigator.vibrate(15)
+      startRest() // a set just landed → start (or restart) the rest countdown
+    }
   }
 
   function openLoad(e: React.MouseEvent, st: WorkoutSet, field: 'weight' | 'reps') {
@@ -154,6 +159,7 @@ export function Log() {
 
   async function onFinish() {
     if (!editMode) return
+    stopRest()
     await finishSession(session!.id)
     navigate('/', { replace: true })
   }
@@ -652,6 +658,13 @@ export function Log() {
           </>
         )}
       </div>
+
+      {/* Rest timer — running countdown, or an idle "Start rest" button. Docks
+          above the footer; carries the safe-area inset only when no footer follows. */}
+      <RestBar
+        canStart={editMode && !editing}
+        bottomInset={!(done > 0 && editMode && !editing)}
+      />
 
       {/* Footer — just the finish action once any set is done (editors only) */}
       {done > 0 && editMode && !editing && (

@@ -188,7 +188,7 @@ async function push(): Promise<void> {
     // Most likely the password is no longer valid → drop edit mode and re-prompt.
     if (/invalid password/i.test(error.message)) {
       clearPassword()
-      setStatus('error', 'Edit password is no longer valid.')
+      setStatus('error', 'Edit code is no longer valid.')
       promptOpen = true
       emit()
     } else {
@@ -348,10 +348,10 @@ export async function enterEditMode(
 ): Promise<{ ok: boolean; error?: string }> {
   if (!supabase) return { ok: false, error: 'Editing is unavailable offline.' }
   const pw = password.trim()
-  if (!pw) return { ok: false, error: 'Enter the password.' }
+  if (!pw) return { ok: false, error: 'Enter the code.' }
   const { data, error } = await supabase.rpc('check_password', { p_password: pw })
   if (error) return { ok: false, error: error.message }
-  if (!data) return { ok: false, error: 'Wrong password.' }
+  if (!data) return { ok: false, error: 'Wrong code.' }
 
   try {
     sessionStorage.setItem(PW_KEY, pw)
