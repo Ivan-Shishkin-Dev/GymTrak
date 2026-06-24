@@ -191,6 +191,76 @@ textarea,
   .gate-input[data-error='true']:focus {
     box-shadow: 0 0 0 3px rgba(255, 90, 90, 0.16);
   }
+
+  /* iOS-style passcode entry — dot indicators + round volt keypad */
+  .gate-dots[data-error='true'] {
+    animation: gate-shake 0.4s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+  }
+  .keypad-key {
+    width: 70px;
+    height: 70px;
+    border-radius: 50%;
+    border: 1.5px solid var(--color-pill-border);
+    background: rgba(205, 244, 99, 0.04);
+    color: var(--color-text);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: background 0.1s ease, border-color 0.1s ease,
+      box-shadow 0.16s ease, transform 0.09s ease;
+  }
+  .keypad-key:active {
+    background: var(--color-volt);
+    border-color: var(--color-volt);
+    color: var(--color-on-volt);
+    box-shadow: 0 0 18px rgba(205, 244, 99, 0.5);
+    transform: scale(0.96);
+  }
+  .keypad-key:active .keypad-letters {
+    color: var(--color-on-volt);
+    opacity: 0.8;
+  }
+  .keypad-key:focus-visible {
+    outline: 2px solid var(--color-volt);
+    outline-offset: 2px;
+  }
+  .keypad-digit {
+    font-size: 27px;
+    font-weight: 600;
+  }
+  .keypad-letters {
+    font-family: var(--font-mono);
+    font-size: 8px;
+    letter-spacing: 0.2em;
+    text-indent: 0.2em;
+    color: var(--color-sub);
+    margin-top: 4px;
+  }
+  .keypad-backspace {
+    width: 70px;
+    height: 70px;
+    border-radius: 50%;
+    border: none;
+    background: transparent;
+    color: var(--color-sub);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: opacity 0.15s ease, color 0.1s ease;
+  }
+  .keypad-backspace:active:not(:disabled) {
+    color: var(--color-text);
+  }
+  .keypad-backspace:disabled {
+    opacity: 0;
+    pointer-events: none;
+  }
 }
 
 /* Keyboard focus ring — invisible to mouse/touch, clear for keyboard users */
@@ -261,6 +331,14 @@ textarea,
     opacity: 1;
     transform: translateY(0) scale(1);
   }
+}
+
+/* Wrong code — the dots shudder, iOS-style */
+@keyframes gate-shake {
+  10%, 90% { transform: translateX(-2px); }
+  20%, 80% { transform: translateX(4px); }
+  30%, 50%, 70% { transform: translateX(-7px); }
+  40%, 60% { transform: translateX(7px); }
 }
 
 /* The lock springs open the moment the right key lands */

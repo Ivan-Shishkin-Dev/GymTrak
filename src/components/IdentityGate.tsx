@@ -1,11 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
-import { Lock, LockOpen, KeyRound, Eye } from 'lucide-react'
+import { Lock, LockOpen, KeyRound, Eye, Delete } from 'lucide-react'
 import {
   useSyncState,
   enterEditMode,
   closeEditPrompt,
   openEditPrompt,
 } from '@/lib/sync'
+
+// The edit code is a fixed-length numeric passcode (the bcrypt-hashed value lives
+// in Supabase's `app_secret`). Filling the last digit auto-submits, iOS-style.
+const CODE_LENGTH = 4
 
 /**
  * Front door to the log. On every fresh load it asks "Are you Ivan?" — anyone can
@@ -24,7 +28,6 @@ export function IdentityGate() {
   const [err, setErr] = useState<string | null>(null)
   // Holds the modal open for the unlock flourish after edit mode is already on.
   const [unlocked, setUnlocked] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
 
   // Ask once on first load when not already unlocked (and sync is configured).
   const asked = useRef(false)
@@ -43,9 +46,6 @@ export function IdentityGate() {
       setUnlocked(false)
     }
   }, [state.promptOpen])
-  useEffect(() => {
-    if (step === 'password') inputRef.current?.focus()
-  }, [step])
 
   // After the unlock flourish plays, let the modal fall away.
   useEffect(() => {
@@ -55,6 +55,35 @@ export function IdentityGate() {
   }, [unlocked])
 
   const visible = unlocked || (state.promptOpen && !state.editMode)
+
+  // Verify a complete code. Takes the just-typed value so it never races state.
+  async function submit(code: string) {
+    if (busy) return
+    setBusy(true)
+    setErr(null)
+    const res = await enterEditMode(code)
+    if (res.ok) {
+      setUnlocked(true) // editMode is on; keep the card up for the flourish
+      return
+    }
+    setBusy(false)
+    setErr(res.error ?? 'That code doesn’t fit.')
+    setPw('')
+  }
+
+  function pressDigit(d: string) {
+    if (busy || pw.length >= CODE_LENGTH) return
+    setErr(null)
+    const next = pw + d
+    setPw(next)
+    if (next.length === CODE_LENGTH) void submit(next) // last digit unlocks
+  }
+
+  function pressBackspace() {
+    if (busy || !pw) return
+    setErr(null)
+    setPw(pw.slice(0, -1))
+  }
 
   // Esc steps back (password → ask) or dismisses into read-only.
   useEffect(() => {
@@ -68,22 +97,24 @@ export function IdentityGate() {
     return () => window.removeEventListener('keydown', onKey)
   }, [visible, unlocked, step])
 
-  if (!visible) return null
-
-  async function submit() {
-    if (busy) return
-    setBusy(true)
-    setErr(null)
-    const res = await enterEditMode(pw)
-    if (res.ok) {
-      setUnlocked(true) // editMode is on; keep the card up for the flourish
-      return
+  // Physical keyboard on desktop: digits fill the code, Backspace deletes one.
+  useEffect(() => {
+    if (!visible || unlocked || step !== 'password') return
+    function onKey(e: KeyboardEvent) {
+      if (e.key.length === 1 && e.key >= '0' && e.key <= '9') {
+        e.preventDefault()
+        pressDigit(e.key)
+      } else if (e.key === 'Backspace') {
+        e.preventDefault()
+        pressBackspace()
+      }
     }
-    setBusy(false)
-    setErr(res.error ?? 'That key doesn’t fit.')
-    setPw('')
-    inputRef.current?.focus()
-  }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // pressDigit/pressBackspace close over pw/busy → re-bind when they change.
+  }, [visible, unlocked, step, pw, busy])
+
+  if (!visible) return null
 
   return (
     <div
@@ -149,56 +180,163 @@ export function IdentityGate() {
           <>
             <Section
               eyebrow="YOUR KEY"
-              title="Enter the password"
+              title="Enter the code"
               titleId="gate-title"
             />
-            <input
-              ref={inputRef}
-              type="text"
-              name="gymtrak-edit-key"
-              autoCapitalize="off"
-              autoCorrect="off"
-              autoComplete="off"
-              spellCheck={false}
-              data-1p-ignore
-              data-lpignore="true"
-              className="gate-input"
-              data-error={err ? 'true' : 'false'}
-              value={pw}
-              onChange={(e) => setPw(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && submit()}
-              placeholder="Password"
-              style={{ marginTop: 18 }}
-            />
+            <Dots length={CODE_LENGTH} filled={pw.length} error={!!err} />
             <div
               style={{
                 fontSize: 12.5,
-                color: '#ff5a5a',
-                marginTop: 8,
+                marginTop: 12,
                 minHeight: 16,
-                opacity: err ? 1 : 0,
+                color: err ? '#ff5a5a' : 'var(--color-sub)',
+                opacity: err || busy ? 1 : 0,
                 transition: 'opacity 0.15s ease',
               }}
             >
-              {err ?? ''}
+              {err ?? (busy ? 'Checking…' : '')}
             </div>
-            <div style={{ ...stackStyle, marginTop: 6 }}>
-              <GateButton
-                variant="volt"
-                icon={<LockOpen size={17} strokeWidth={2.3} />}
-                onClick={submit}
-                disabled={!pw.trim() || busy}
-              >
-                {busy ? 'Checking…' : 'Unlock editing'}
-              </GateButton>
-              <GateButton variant="ghost" onClick={() => setStep('ask')}>
-                Back
-              </GateButton>
-            </div>
+            <Keypad
+              onDigit={pressDigit}
+              onBackspace={pressBackspace}
+              canDelete={pw.length > 0 && !busy}
+            />
+            <button
+              className="tap"
+              onClick={() => setStep('ask')}
+              style={{
+                marginTop: 18,
+                background: 'none',
+                border: 'none',
+                color: 'var(--color-sub)',
+                fontSize: 14,
+                fontWeight: 600,
+                cursor: 'pointer',
+                padding: 8,
+              }}
+            >
+              Back
+            </button>
           </>
         )}
       </div>
     </div>
+  )
+}
+
+/* ── The code dots: one per digit, filled volt as you type; shudder on a miss ─── */
+function Dots({
+  length,
+  filled,
+  error,
+}: {
+  length: number
+  filled: number
+  error: boolean
+}) {
+  return (
+    <div
+      className="gate-dots"
+      data-error={error ? 'true' : 'false'}
+      style={{
+        display: 'flex',
+        gap: 18,
+        marginTop: 20,
+        height: 14,
+        alignItems: 'center',
+      }}
+    >
+      {Array.from({ length }).map((_, i) => {
+        const on = i < filled
+        return (
+          <span
+            key={i}
+            style={{
+              width: 13,
+              height: 13,
+              borderRadius: '50%',
+              border: '1.5px solid var(--color-volt)',
+              background: on ? 'var(--color-volt)' : 'transparent',
+              boxShadow: on ? '0 0 8px rgba(205, 244, 99, 0.5)' : 'none',
+              transition: 'background 0.12s ease, box-shadow 0.12s ease',
+            }}
+          />
+        )
+      })}
+    </div>
+  )
+}
+
+/* ── The keypad: round volt keys, iPhone-style letters, a backspace by the 0 ──── */
+const KEYS: { d: string; letters: string }[] = [
+  { d: '1', letters: '' },
+  { d: '2', letters: 'ABC' },
+  { d: '3', letters: 'DEF' },
+  { d: '4', letters: 'GHI' },
+  { d: '5', letters: 'JKL' },
+  { d: '6', letters: 'MNO' },
+  { d: '7', letters: 'PQRS' },
+  { d: '8', letters: 'TUV' },
+  { d: '9', letters: 'WXYZ' },
+]
+
+function Keypad({
+  onDigit,
+  onBackspace,
+  canDelete,
+}: {
+  onDigit: (d: string) => void
+  onBackspace: () => void
+  canDelete: boolean
+}) {
+  return (
+    <div
+      style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(3, 1fr)',
+        gap: 16,
+        marginTop: 6,
+        width: '100%',
+        placeItems: 'center',
+      }}
+    >
+      {KEYS.map((k) => (
+        <KeyButton key={k.d} digit={k.d} letters={k.letters} onPress={onDigit} />
+      ))}
+      <span aria-hidden />
+      <KeyButton digit="0" letters="" onPress={onDigit} />
+      <button
+        type="button"
+        className="keypad-backspace"
+        onClick={onBackspace}
+        disabled={!canDelete}
+        aria-label="Delete"
+      >
+        <Delete size={24} strokeWidth={2} />
+      </button>
+    </div>
+  )
+}
+
+function KeyButton({
+  digit,
+  letters,
+  onPress,
+}: {
+  digit: string
+  letters: string
+  onPress: (d: string) => void
+}) {
+  return (
+    <button
+      type="button"
+      className="keypad-key"
+      onClick={() => onPress(digit)}
+      aria-label={digit}
+    >
+      <span className="keypad-digit">{digit}</span>
+      {letters ? <span className="keypad-letters">{letters}</span> : null}
+    </button>
   )
 }
 
