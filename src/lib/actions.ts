@@ -5,7 +5,7 @@ import { dayRank, byDayOrder } from './rotation'
 import type { Day, Exercise, WorkoutSet } from '@/db/types'
 
 /** Open sessions older than this are treated as abandoned, not resumed. */
-const RESUME_WINDOW_MS = 6 * 60 * 60 * 1000 // 6 hours
+export const RESUME_WINDOW_MS = 6 * 60 * 60 * 1000 // 6 hours
 
 /**
  * Write guard. Every mutating action funnels through here, so a view-only visitor

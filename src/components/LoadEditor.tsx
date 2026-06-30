@@ -83,18 +83,28 @@ export function LoadEditor({
 }: Props) {
   const [fields, setFields] = useState(() => initFields(value, loadType))
   const focused = useRef(false)
+  // The last canonical string we emitted, so the re-seed below can ignore its own
+  // echo — otherwise a mode toggle (e.g. machine Max) round-trips through a lossy
+  // canonical string and wipes the hidden field (the pin reading).
+  const lastEmitted = useRef<string | null>(null)
 
   // Re-seed from the prop when it changes externally (only while not focused,
-  // so it never clobbers what the user is typing).
+  // so it never clobbers what the user is typing). Skip our own echo so toggles
+  // stay non-destructive; genuine external changes still re-seed.
   useEffect(() => {
-    if (!focused.current) setFields(initFields(value, loadType))
+    if (value !== lastEmitted.current && !focused.current) {
+      setFields(initFields(value, loadType))
+    }
+    lastEmitted.current = null
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value, loadType])
 
   function update(patch: Partial<Fields>) {
     const next = { ...fields, ...patch }
     setFields(next)
-    onChange(toCanonical(loadType, next))
+    const canonical = toCanonical(loadType, next)
+    lastEmitted.current = canonical
+    onChange(canonical)
   }
 
   const inputBase: CSSProperties = compact

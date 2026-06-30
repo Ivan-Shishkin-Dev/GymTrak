@@ -36,7 +36,7 @@ export function inferLoadType(raw: string): LoadType {
   const s = raw.trim()
   if (s === '') return 'weight'
   if (/pl\b/i.test(s) || /^\d+(?:\.\d+)?\s*\+\s*\d/.test(s)) return 'plates' // "6 pl", "5+25"
-  if (/^BW\b/i.test(s) || /^\+\s*\d/.test(s)) return 'bodyweight' // "BW", "+70"
+  if (/^BW\b/i.test(s) || /^[+−-]\s*\d/.test(s)) return 'bodyweight' // "BW", "+70", "−25"
   if (/^Max\b/i.test(s)) return 'machine' // "Max", "Max+10"
   if (/^\d+(?:\.\d+)?\s*(?:lb|lbs)$/i.test(s)) return 'weight' // "225 lb"
   if (/^\d+(?:\.\d+)?$/.test(s)) return 'machine' // bare "10", "16"
