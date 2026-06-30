@@ -482,6 +482,7 @@ export function Log() {
           <button
             onClick={() => {
               setNameDraft(null)
+              cancelLoad()
               setEditing((v) => !v)
             }}
             className="card tap"
