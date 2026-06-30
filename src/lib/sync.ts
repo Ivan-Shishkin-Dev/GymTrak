@@ -32,6 +32,9 @@ const TABLE = 'gt_state'
 const ROW_ID = 1
 const PW_KEY = 'gt_edit_pw'
 const PUSH_DEBOUNCE_MS = 1200
+// Mirrors actions.RESUME_WINDOW_MS (kept local to avoid an actions↔sync import cycle).
+// A still-open workout younger than this must not be clobbered by a remote snapshot.
+const OPEN_SESSION_WINDOW_MS = 6 * 60 * 60 * 1000
 
 /* ── Observable status for the UI ──────────────────────────────────────────── */
 
@@ -172,6 +175,18 @@ async function localMaxUpdatedAt(): Promise<number> {
   return m
 }
 
+/**
+ * True when a recent, still-open workout exists locally. Adopting a remote snapshot
+ * (which clears sessions/sets) would wipe it, so the adopt paths push local instead.
+ * Bounded to recent sessions so an abandoned (stale) one never blocks legitimate sync.
+ */
+async function hasRecentOpenSession(): Promise<boolean> {
+  const now = Date.now()
+  return (await db.sessions.toArray()).some(
+    (s) => s.finishedAt == null && !s.deleted && now - s.startedAt < OPEN_SESSION_WINDOW_MS,
+  )
+}
+
 /* ── Push / pull ───────────────────────────────────────────────────────────── */
 
 /** Push the whole local DB up via the password-checked RPC. No-ops unless in edit mode. */
@@ -221,6 +236,11 @@ async function pull(): Promise<'pulled' | 'current' | 'empty'> {
   hasCloudRow = true
   const serverUpdated = Number(data.updated_at)
   if (serverUpdated > cursor) {
+    // Never overwrite a live workout with a remote snapshot — push ours up instead.
+    if (editMode && (await hasRecentOpenSession())) {
+      await push()
+      return 'current'
+    }
     await applySnapshot(data.data as Snapshot)
     cursor = serverUpdated
     setStatus('synced')
@@ -283,8 +303,9 @@ async function reconcile(): Promise<void> {
   hasCloudRow = true
   const serverUpdated = Number(data.updated_at)
   const localMax = await localMaxUpdatedAt()
-  if (editMode && localMax > serverUpdated) {
-    // This device has newer (offline) edits than the cloud → push them up.
+  if (editMode && (localMax > serverUpdated || (await hasRecentOpenSession()))) {
+    // This device has newer (offline) edits, or a live workout in progress → push them
+    // up rather than adopt the cloud and wipe the open session.
     await push()
   } else {
     // Cloud is as-new-or-newer → adopt it wholesale (covers fresh viewers).
