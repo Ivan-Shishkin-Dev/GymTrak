@@ -167,16 +167,13 @@ export async function deleteDay(id: number): Promise<void> {
   })
 }
 
-/** Patch an exercise's editable fields (name / sets / load / reps / note / per-set rows).
+/** Patch an exercise's editable fields (name / sets / load / reps / per-set rows).
     Each exercise is independent — same-named exercises on other days are NOT touched
     (cross-day propagation was removed after proving faulty). */
 export async function updateExercise(
   id: string,
   patch: Partial<
-    Pick<
-      Exercise,
-      'name' | 'sets' | 'weight' | 'reps' | 'note' | 'libLoad' | 'setRows' | 'loadType'
-    >
+    Pick<Exercise, 'name' | 'sets' | 'weight' | 'reps' | 'setRows' | 'loadType'>
   >,
 ): Promise<void> {
   requireEdit()
@@ -200,8 +197,6 @@ export async function addExercise(
     sets: partial?.sets ?? 2,
     weight: partial?.weight ?? '',
     reps: partial?.reps ?? '× 6',
-    note: partial?.note ?? '',
-    libLoad: partial?.libLoad ?? '',
     loadType: partial?.loadType ?? 'weight',
     updatedAt: Date.now(),
   })
@@ -351,8 +346,7 @@ async function discardSession(sessionId: string): Promise<void> {
  * Per-set carry-over: the Library is the source of truth for your loads, so each
  * exercise's sets this session (in order) are written back to its Library entry
  * as `setRows`. Different weights per set are remembered — next time you start
- * that day, every set prefills from what you used. The free-text Description
- * (libLoad) is left untouched.
+ * that day, every set prefills from what you used.
  */
 export async function finishSession(sessionId: string): Promise<void> {
   requireEdit()

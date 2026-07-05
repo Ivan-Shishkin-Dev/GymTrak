@@ -14,8 +14,8 @@ const DAYS: Day[] = [
 
 /** One planned set: [rawLoad, reps]. Load is canonicalized through the grammar at build. */
 type SetSpec = [string, string]
-/** A catalog entry: display name, load type, its per-set loads, optional cue. */
-type Row = { name: string; type: LoadType; sets: SetSpec[]; note?: string }
+/** A catalog entry: display name, load type, its per-set loads. */
+type Row = { name: string; type: LoadType; sets: SetSpec[] }
 
 /*
  * The real split. Per-set loads are stored individually (back-offs preserved).
@@ -54,7 +54,7 @@ const CATALOG: Record<number, Row[]> = {
     { name: 'Leg Curl', type: 'machine', sets: [['Max', '× 6'], ['Max', '× 6']] },
     { name: 'Leg Extension', type: 'weight', sets: [['150 lb', '× 6'], ['150 lb', '× 6']] },
     { name: 'Calf', type: 'machine', sets: [['10', '× 10'], ['10', '× 10']] },
-    { name: "Captain's Chair Leg Raise", type: 'bodyweight', sets: [['BW', '× 8–12'], ['BW', '× 8–12'], ['BW', '× 8–12']], note: 'PPT at bottom' },
+    { name: "Captain's Chair Leg Raise", type: 'bodyweight', sets: [['BW', '× 8–12'], ['BW', '× 8–12'], ['BW', '× 8–12']] },
   ],
   5: [
     { name: 'Dip', type: 'bodyweight', sets: [['+80', '× 6'], ['+80', '× 5']] },
@@ -91,8 +91,6 @@ function buildExercises(now: number): Exercise[] {
         sets: rows.length,
         weight: rows[0].weight, // first-set fallback when setRows is absent
         reps: rows[0].reps,
-        note: r.note ?? '',
-        libLoad: '',
         setRows: rows,
         loadType: r.type,
         updatedAt: now,

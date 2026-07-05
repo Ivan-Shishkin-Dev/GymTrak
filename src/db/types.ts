@@ -54,8 +54,8 @@ export const ExerciseSchema = z.object({
   sets: z.number().int(), // set count (kept in sync with setRows.length)
   weight: z.string(), // first set's load — fallback when setRows is absent
   reps: z.string(), // first set's reps — fallback when setRows is absent
-  note: z.string(), // log header note, e.g. '+80 × 6 → +70 × 6'
-  libLoad: z.string(), // free-text description shown on the card, e.g. 'Heavy 3–4, top set + back-off'
+  note: z.string().optional(), // legacy free-text cue — no UI writes it anymore; kept for old snapshots
+  libLoad: z.string().optional(), // legacy "Description" — no UI writes it anymore; kept for old snapshots
   setRows: z.array(SetRowSchema).optional(), // per-set loads; falls back to sets×weight/reps when absent
   loadType: LoadTypeSchema.optional(), // how `weight` is entered; inferred from the string when absent
   updatedAt: z.number(),

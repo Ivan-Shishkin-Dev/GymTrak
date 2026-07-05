@@ -24,7 +24,7 @@ import { PencilGlyph, PlusGlyph, TrashGlyph, ChevronDown } from '@/components/ic
 /* ── local state shapes ──────────────────────────────────────────────────── */
 
 type DayDraft = { name: string; focus: string }
-type ExDraft = { name: string; libLoad: string; loadType: LoadType; rows: SetRow[] }
+type ExDraft = { name: string; loadType: LoadType; rows: SetRow[] }
 
 /** Load-type chips shown in the exercise editor. */
 const LOAD_TYPES: { key: LoadType; label: string }[] = [
@@ -37,7 +37,7 @@ const LOAD_TYPES: { key: LoadType; label: string }[] = [
 
 function emptyExDraft(ex: Exercise): ExDraft {
   const loadType = ex.loadType ?? inferLoadType(ex.weight)
-  return { name: ex.name, libLoad: ex.libLoad, loadType, rows: getSetRows(ex).map((r) => ({ ...r })) }
+  return { name: ex.name, loadType, rows: getSetRows(ex).map((r) => ({ ...r })) }
 }
 
 /* ── tiny shared input style ─────────────────────────────────────────────── */
@@ -151,7 +151,6 @@ function DayCard({
     const safe = rows.length ? rows : [{ weight: '', reps: '' }]
     await updateExercise(ex.id, {
       name: exDraft.name.trim() || ex.name,
-      libLoad: exDraft.libLoad.trim(),
       loadType: exDraft.loadType,
       setRows: safe,
       sets: safe.length,
@@ -364,16 +363,6 @@ function DayCard({
                     placeholder="Exercise name"
                     autoFocus
                   />
-                  {/* Description — free text shown on the card */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                    <span style={{ fontSize: 10.5, color: 'var(--color-faint)', paddingLeft: 2 }}>Description</span>
-                    <input
-                      style={inputStyle}
-                      value={exDraft.libLoad}
-                      onChange={(e) => setExDraft((d) => d && ({ ...d, libLoad: e.target.value }))}
-                      placeholder="e.g. Heavy 3–4, top set + back-off"
-                    />
-                  </div>
                   {/* Load type — how this exercise's weight is entered */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                     <span style={{ fontSize: 10.5, color: 'var(--color-faint)', paddingLeft: 2 }}>Load type</span>
