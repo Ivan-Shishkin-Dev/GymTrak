@@ -39,19 +39,18 @@ export function dayOfRotationLabel(day: Day, days: Day[]): string {
 }
 
 /**
- * Compact rail monogram for a rotation day: type initial + variant ("Upper A" →
- * "UA", "Lower B" → "LB"). Falls back to the name's initials, then the position,
- * so a custom-named day still gets a legible 1–2 char tag.
+ * Two-line rail label for a rotation day: the split word in caps on top, the
+ * variant below ("Upper A" → UPPER / A) — so the rail reads in real words.
+ * Single-word names render alone (`top: null`); an empty name falls back to
+ * the position so the cell is never blank.
  */
-export function dayMonogram(name: string, pos: number): string {
-  const m = /^(upper|lower)\s+(\S+)/i.exec(name.trim())
-  if (m) return (m[1][0] + m[2][0]).toUpperCase()
-  const initials = name
-    .trim()
-    .split(/\s+/)
-    .map((w) => w[0] ?? '')
-    .join('')
-    .slice(0, 2)
-    .toUpperCase()
-  return initials || String(pos)
+export function daySplitLabel(
+  name: string,
+  pos: number,
+): { top: string | null; main: string } {
+  const words = name.trim().split(/\s+/).filter(Boolean)
+  if (words.length >= 2) {
+    return { top: words[0].toUpperCase(), main: words.slice(1).join(' ') }
+  }
+  return { top: null, main: words[0] ?? String(pos) }
 }
