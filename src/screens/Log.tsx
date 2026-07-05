@@ -47,6 +47,8 @@ export function Log() {
   const [editing, setEditing] = useState(false)
   // inline exercise rename in progress
   const [nameDraft, setNameDraft] = useState<{ id: string; text: string } | null>(null)
+  // guard: "Finish workout" asks before ending the session (unticked sets are dropped)
+  const [confirmFinish, setConfirmFinish] = useState(false)
 
   const open = useLiveQuery(
     () => db.sessions.filter((s) => s.finishedAt == null && !s.deleted).toArray(),
@@ -157,8 +159,9 @@ export function Log() {
     if (text) await updateExercise(draft.id, { name: text })
   }
 
-  async function onFinish() {
+  async function proceedFinish() {
     if (!editMode) return
+    setConfirmFinish(false)
     stopRest()
     await finishSession(session!.id)
     navigate('/', { replace: true })
@@ -679,7 +682,7 @@ export function Log() {
           }}
         >
           <button
-            onClick={onFinish}
+            onClick={() => setConfirmFinish(true)}
             className="tap press"
             style={{
               width: '100%',
@@ -697,6 +700,82 @@ export function Log() {
           >
             Finish workout
           </button>
+        </div>
+      )}
+
+      {/* Guard: finishing ends the session and drops any unticked sets */}
+      {confirmFinish && (
+        <div
+          onClick={() => setConfirmFinish(false)}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 50,
+            background: 'rgba(0,0,0,0.62)',
+            backdropFilter: 'blur(4px)',
+            WebkitBackdropFilter: 'blur(4px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 24,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="card"
+            style={{
+              width: '100%',
+              maxWidth: 340,
+              borderRadius: 24,
+              padding: 24,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+            }}
+          >
+            <div style={{ fontSize: 19, fontWeight: 720, letterSpacing: '-0.01em' }}>
+              Finish {day.name}?
+            </div>
+            <div style={{ fontSize: 13.5, color: 'var(--color-sub)', lineHeight: 1.45 }}>
+              {done < total
+                ? `${done} of ${total} sets done — the ${total - done} unticked ${
+                    total - done === 1 ? 'set' : 'sets'
+                  } will be dropped from the log.`
+                : `All ${total} sets done. Loads carry over to the Library for next time.`}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 9, marginTop: 14 }}>
+              <button
+                onClick={() => void proceedFinish()}
+                style={{
+                  height: 50,
+                  borderRadius: 25,
+                  background: 'var(--color-volt)',
+                  color: 'var(--color-on-volt)',
+                  border: 'none',
+                  fontSize: 15.5,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                Finish workout
+              </button>
+              <button
+                onClick={() => setConfirmFinish(false)}
+                style={{
+                  height: 50,
+                  borderRadius: 25,
+                  background: 'transparent',
+                  color: 'var(--color-sub)',
+                  border: '1px solid var(--color-pill-border)',
+                  fontSize: 15.5,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Keep going
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
