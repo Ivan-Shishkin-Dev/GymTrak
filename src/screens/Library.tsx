@@ -261,7 +261,9 @@ function DayCard({
           </div>
         ) : (
           <>
-            {/* left: name + focus pill */}
+            {/* left: name + focus pill. The name never shrinks (day names are
+                short by design; maxWidth guards absurd ones) — the pill gives
+                way instead, so "Upper C" doesn't ellipsize into "Upp…". */}
             <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
               <span
                 style={{
@@ -271,6 +273,8 @@ function DayCard({
                   whiteSpace: 'nowrap',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
+                  flexShrink: 0,
+                  maxWidth: '60%',
                 }}
               >
                 {day.name}
@@ -278,7 +282,9 @@ function DayCard({
               {day.focus && (
                 <span
                   style={{
-                    flexShrink: 0,
+                    minWidth: 0,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
                     fontSize: 11,
                     color: 'var(--color-volt)',
                     background: 'var(--color-volt-tint)',
