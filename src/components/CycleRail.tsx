@@ -21,19 +21,7 @@ export function CycleRail({
 }) {
   if (!days.length) return null
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-      <div
-        style={{
-          fontFamily: 'var(--font-mono)',
-          fontSize: 11,
-          letterSpacing: '0.12em',
-          color: 'var(--color-faint)',
-          paddingLeft: 2,
-        }}
-      >
-        ROTATION · {days.length} DAYS
-      </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
         {days.map((d, i) => {
           const selected = d.id === selectedId
           const isAuto = d.id === autoId
@@ -49,17 +37,15 @@ export function CycleRail({
                 position: 'relative',
                 flex: '1 1 0',
                 minWidth: 46,
-                height: 54,
+                height: 44,
                 borderRadius: 14,
                 border: selected
                   ? '1px solid var(--color-volt)'
                   : '1px solid var(--color-pill-border)',
                 background: selected ? 'var(--color-volt-tint)' : 'transparent',
                 display: 'flex',
-                flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: 2,
                 cursor: 'pointer',
                 transition: 'border-color 0.15s ease, background 0.15s ease',
               }}
@@ -74,15 +60,6 @@ export function CycleRail({
                 }}
               >
                 {dayMonogram(d.name, i + 1)}
-              </span>
-              <span
-                style={{
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: 9.5,
-                  color: accent ?? 'var(--color-dim)',
-                }}
-              >
-                {i + 1}
               </span>
               {isAuto && !selected && (
                 <span
@@ -100,7 +77,6 @@ export function CycleRail({
             </button>
           )
         })}
-      </div>
     </div>
   )
 }

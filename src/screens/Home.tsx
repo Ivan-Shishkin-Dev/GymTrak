@@ -98,9 +98,11 @@ export function Home() {
 
   return (
     <div className="screen">
-      <div className="screen-title">Workouts</div>
-
-      <SyncBar />
+      {/* Title row — sync status and the lock live up here, not in a card */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div className="screen-title" style={{ padding: 0 }}>Workouts</div>
+        <SyncBar />
+      </div>
 
       {/* First-load placeholder — fills the gap before queries resolve */}
       {!ready && <HeroSkeleton />}
