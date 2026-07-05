@@ -20,9 +20,8 @@ type Row = { name: string; type: LoadType; sets: SetSpec[]; note?: string }
 /*
  * The real split. Per-set loads are stored individually (back-offs preserved).
  * `machine` loads carry their unit in the string: bare "12" is a level, "120 lb"
- * is a pounds stack. Same-named exercises across days are LINKED (see
- * propagateLoad in actions.ts) — the names below are deliberately unified so the
- * link matches (e.g. "Lat Pulldown", "Calf", "Shoulder Press", "Single-Arm Tricep").
+ * is a pounds stack. Same-named exercises across days are independent — each
+ * day's entry progresses on its own (cross-day load linking was removed).
  */
 const CATALOG: Record<number, Row[]> = {
   1: [

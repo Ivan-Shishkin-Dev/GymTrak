@@ -167,37 +167,9 @@ export async function deleteDay(id: number): Promise<void> {
   })
 }
 
-/** Normalized name key for matching the same movement across rotation days. */
-const normName = (s: string) => s.trim().toLowerCase()
-
-/** Just the load scheme of an exercise — what carries across days when linked. */
-function loadPatch(ex: Exercise): Partial<Exercise> {
-  const patch: Partial<Exercise> = { sets: ex.sets, weight: ex.weight, reps: ex.reps }
-  if (ex.setRows) patch.setRows = ex.setRows
-  if (ex.loadType) patch.loadType = ex.loadType
-  return patch
-}
-
-/**
- * Copy one exercise's whole load scheme onto every other exercise sharing its
- * name — the same movement on another rotation day. So progressing it on one day
- * (via carry-over or a Library edit) moves it everywhere. Matches case-insensitively
- * and writes siblings directly (no re-trigger, so no recursion).
- */
-async function propagateLoad(
-  srcId: string,
-  name: string,
-  patch: Partial<Exercise>,
-  now: number,
-): Promise<void> {
-  const key = normName(name)
-  const sibs = (await db.exercises.toArray()).filter(
-    (e) => e.id !== srcId && normName(e.name) === key,
-  )
-  for (const e of sibs) await db.exercises.update(e.id, { ...patch, updatedAt: now })
-}
-
-/** Patch an exercise's editable fields (name / sets / load / reps / note / per-set rows). */
+/** Patch an exercise's editable fields (name / sets / load / reps / note / per-set rows).
+    Each exercise is independent — same-named exercises on other days are NOT touched
+    (cross-day propagation was removed after proving faulty). */
 export async function updateExercise(
   id: string,
   patch: Partial<
@@ -208,14 +180,7 @@ export async function updateExercise(
   >,
 ): Promise<void> {
   requireEdit()
-  const now = Date.now()
-  await db.exercises.update(id, { ...patch, updatedAt: now })
-  // If a load field changed, mirror the scheme onto same-named exercises on other days.
-  const touchesLoad = ['setRows', 'weight', 'reps', 'sets', 'loadType'].some((k) => k in patch)
-  if (touchesLoad) {
-    const ex = await db.exercises.get(id)
-    if (ex) await propagateLoad(id, ex.name, loadPatch(ex), now)
-  }
+  await db.exercises.update(id, { ...patch, updatedAt: Date.now() })
 }
 
 /** Append a new exercise to a day, ordered after the current last one. */
@@ -424,8 +389,6 @@ export async function finishSession(sessionId: string): Promise<void> {
       }
       if (ex?.loadType) patch.loadType = ex.loadType
       await db.exercises.update(exerciseId, { ...patch, updatedAt: now })
-      // Linked days: the same movement on other days tracks the same load.
-      if (ex) await propagateLoad(exerciseId, ex.name, patch, now)
     }
 
     await db.sessions.update(sessionId, {
