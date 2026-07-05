@@ -324,7 +324,6 @@ export function Log() {
                       style={{
                         fontSize: 16,
                         fontWeight: 620,
-                        borderBottom: editMode ? '1px dashed var(--color-check-border)' : 'none',
                         paddingBottom: 1,
                       }}
                     >
@@ -350,7 +349,6 @@ export function Log() {
                       style={{
                         fontSize: 14,
                         color: 'var(--color-sub)',
-                        borderBottom: editMode ? '1px dashed var(--color-separator)' : 'none',
                         paddingBottom: 1,
                       }}
                     >
@@ -552,13 +550,14 @@ export function Log() {
           gap: 12,
         }}
       >
-        <div style={{ fontSize: 12, color: 'var(--color-faint)', padding: '0 2px' }}>
-          {!editMode
-            ? 'Viewing a live workout — read only'
-            : editing
-              ? 'Editing — reorder, rename, change type, and add or remove sets and exercises'
-              : "Loads carried over from last time — tap a weight to edit it, tap the circle when a set's done"}
-        </div>
+        {/* Only the unusual modes need explaining — a normal workout doesn't */}
+        {(!editMode || editing) && (
+          <div style={{ fontSize: 12, color: 'var(--color-faint)', padding: '0 2px' }}>
+            {!editMode
+              ? 'Viewing a live workout — read only'
+              : 'Editing — reorder, rename, change type, and add or remove sets and exercises'}
+          </div>
+        )}
 
         {/* Active exercises (not yet fully done) */}
         {activeGroups.map((g) => renderCard(g, groups.indexOf(g), editing))}
