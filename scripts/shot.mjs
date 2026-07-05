@@ -97,6 +97,25 @@ try {
   await cdp.ready
   await cdp.send('Page.enable')
   await cdp.send('Runtime.enable')
+  // Slip past the IdentityGate: pre-seed the edit-mode key (any value — locally
+  // only its presence is checked) and stub the save_state RPC so scripted taps
+  // "save" without ever writing to the live cloud row.
+  await cdp.send('Page.addScriptToEvaluateOnNewDocument', {
+    source: `
+      try { sessionStorage.setItem('gt_edit_pw', 'shot') } catch {}
+      const _fetch = window.fetch.bind(window)
+      window.fetch = (input, init) => {
+        const url = typeof input === 'string' ? input : (input && input.url) || ''
+        if (url.includes('/rpc/save_state')) {
+          return Promise.resolve(new Response(String(Date.now()), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }))
+        }
+        return _fetch(input, init)
+      }
+    `,
+  })
   await cdp.send('Emulation.setDeviceMetricsOverride', {
     width: W,
     height: H,
