@@ -100,6 +100,7 @@ function DayCard({
   open,
   onSetOpen,
   editMode,
+  editing,
   isFirst,
   isLast,
   onMoveDay,
@@ -108,7 +109,8 @@ function DayCard({
   exercises: Exercise[]
   open: boolean
   onSetOpen: (open: boolean) => void
-  editMode: boolean
+  editMode: boolean // unlocked (may mutate) — gates tap-to-edit on rows
+  editing: boolean // structural edit mode — shows reorder/rename/delete/add chrome
   isFirst: boolean
   isLast: boolean
   onMoveDay: (dir: -1 | 1) => void
@@ -315,7 +317,7 @@ function DayCard({
               >
                 <ChevronDown open={open} />
               </div>
-              {editMode && (
+              {editing && (
                 <>
                   <MoveButtons
                     onMove={onMoveDay}
@@ -475,13 +477,17 @@ function DayCard({
                   </div>
                 </div>
               ) : (
-                /* ── read-only exercise row ──────────────────────────── */
+                /* ── exercise row — tap to tweak it; structural chrome only
+                      while the screen's Edit toggle is on ────────────────── */
                 <div
+                  className={editMode && !editing ? 'tap' : undefined}
+                  onClick={editMode && !editing ? () => openExEdit(ex) : undefined}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
                     padding: '9px 18px',
                     gap: 8,
+                    cursor: editMode && !editing ? 'pointer' : undefined,
                   }}
                 >
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -496,9 +502,9 @@ function DayCard({
                     >
                       {ex.name}
                     </div>
-                    {/* In edit mode the controls take the right side, so the load
+                    {/* While editing the controls take the right side, so the load
                         reads on its own line under the name (truncated if long). */}
-                    {editMode && (
+                    {editing && (
                       <div
                         className="tabular-nums"
                         style={{
@@ -514,7 +520,7 @@ function DayCard({
                       </div>
                     )}
                   </div>
-                  {!editMode && (
+                  {!editing && (
                     <div
                       className="tabular-nums"
                       style={{ fontSize: 12.5, color: 'var(--color-sub)', whiteSpace: 'nowrap' }}
@@ -522,7 +528,7 @@ function DayCard({
                       <ExerciseSummary ex={ex} />
                     </div>
                   )}
-                  {editMode && (
+                  {editing && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                     <MoveButtons
                       onMove={(dir) => moveExercise(ex.id, dir)}
@@ -551,7 +557,7 @@ function DayCard({
           ))}
 
           {/* ── add exercise button ───────────────────────────────────── */}
-          {editMode && (
+          {editing && (
           <div style={{ padding: '6px 18px 4px' }}>
             <button
               className="tap press"
@@ -667,16 +673,39 @@ export function Library() {
   const exercises = useLiveQuery(() => db.exercises.toArray(), [], [])
   // Accordion: at most one day expanded; null = all collapsed (the default).
   const [openDayId, setOpenDayId] = useState<number | null>(null)
+  // Structural edit mode (reorder / rename / add / delete) — same vocabulary as
+  // the Log screen. Day-to-day the Library is a clean read: tap a row to tweak it.
+  const [editing, setEditing] = useState(false)
 
   return (
     <div className="screen">
-      <div style={{ padding: '6px 0 18px' }}>
-        <div
-          className="screen-title"
-          style={{ fontSize: 34, fontWeight: 760, letterSpacing: '-0.02em' }}
-        >
-          Library
-        </div>
+      <div
+        style={{
+          padding: '6px 0 12px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+        }}
+      >
+        <div className="screen-title" style={{ padding: 0 }}>Library</div>
+        {editMode && (
+          <button
+            onClick={() => setEditing((v) => !v)}
+            className="card tap"
+            style={{
+              fontSize: 13,
+              fontWeight: 640,
+              borderRadius: 99,
+              borderColor: editing ? 'var(--color-volt)' : 'var(--color-pill-border)',
+              color: editing ? 'var(--color-volt)' : 'var(--color-text)',
+              background: editing ? 'var(--color-volt-tint)' : undefined,
+              padding: '8px 14px',
+              cursor: 'pointer',
+            }}
+          >
+            {editing ? 'Done' : 'Edit'}
+          </button>
+        )}
       </div>
 
       {days.map((day, i) => {
@@ -691,6 +720,7 @@ export function Library() {
             open={openDayId === day.id}
             onSetOpen={(o) => setOpenDayId(o ? day.id : null)}
             editMode={editMode}
+            editing={editMode && editing}
             isFirst={i === 0}
             isLast={i === days.length - 1}
             onMoveDay={(dir) => moveDay(day.id, dir)}
@@ -698,7 +728,7 @@ export function Library() {
         )
       })}
 
-      {editMode && (
+      {editMode && editing && (
         <button
           className="tap press"
           onClick={() => addDay()}
