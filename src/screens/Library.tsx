@@ -5,6 +5,7 @@ import type { Day, Exercise, LoadType, SetRow } from '@/db/types'
 import {
   updateDay,
   addDay,
+  archiveDay,
   deleteDay,
   moveDay,
   updateExercise,
@@ -20,6 +21,7 @@ import { ExerciseSummary } from '@/components/ExerciseSummary'
 import { LoadEditor, RepsField } from '@/components/LoadEditor'
 import { MoveButtons } from '@/components/MoveButtons'
 import { PencilGlyph, PlusGlyph, TrashGlyph, ChevronDown } from '@/components/icons'
+import { ProgramCard } from '@/components/ProgramCard'
 
 /* ── local state shapes ──────────────────────────────────────────────────── */
 
@@ -104,9 +106,12 @@ function DayCard({
   isFirst,
   isLast,
   onMoveDay,
+  scheduledOn,
 }: {
   day: Day
   exercises: Exercise[]
+  /** 'MON' — the weekday the program trains this day on, if it schedules it. */
+  scheduledOn?: string
   open: boolean
   onSetOpen: (open: boolean) => void
   editMode: boolean // unlocked (may mutate) — gates tap-to-edit on rows
@@ -266,7 +271,8 @@ function DayCard({
             {/* left: name + focus pill. The name never shrinks (day names are
                 short by design; maxWidth guards absurd ones) — the pill gives
                 way instead, so "Upper C" doesn't ellipsize into "Upp…". */}
-            <div style={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
+             <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
               <span
                 style={{
                   fontSize: 15,
@@ -301,6 +307,26 @@ function DayCard({
                   {day.focus}
                 </span>
               )}
+             </div>
+              {/* One line that answers "when do I do this, and how big is it" —
+                  the same question the day header used to leave to a tap. */}
+              <div style={{ fontSize: 11.5, color: 'var(--color-dim)' }}>
+                {scheduledOn && (
+                  <>
+                    <span
+                      style={{
+                        fontFamily: 'var(--font-mono)',
+                        letterSpacing: '0.08em',
+                        color: 'var(--color-sub)',
+                      }}
+                    >
+                      {scheduledOn}
+                    </span>
+                    {' · '}
+                  </>
+                )}
+                {exercises.length} {exercises.length === 1 ? 'exercise' : 'exercises'}
+              </div>
             </div>
             {/* right: collapse chevron, then edit + delete — pencil/trash stay
                 right-anchored so they line up with the exercise rows below */}
@@ -669,8 +695,23 @@ function DayCard({
 
 export function Library() {
   const editMode = useEditMode()
-  const days = useLiveQuery(async () => (await db.days.toArray()).sort(byDayOrder), [], [])
+  const allDays = useLiveQuery(async () => (await db.days.toArray()).sort(byDayOrder), [], [])
+  // Archived days stay in the table so past sessions still resolve their name —
+  // they're just hidden from the plan you're actually training.
+  const days = allDays.filter((d) => !d.archived)
+  const archivedDays = allDays.filter((d) => d.archived)
   const exercises = useLiveQuery(() => db.exercises.toArray(), [], [])
+  // Every program week shares the same lift layout, so the first one is enough
+  // to say which weekday each day is trained on.
+  const weeks = useLiveQuery(
+    async () => (await db.programWeeks.toArray()).sort((a, b) => a.id - b.id),
+    [],
+    [],
+  )
+  const scheduledOn = new Map<number, string>()
+  for (const slot of weeks[0]?.slots ?? []) {
+    if (slot.liftDayId != null) scheduledOn.set(slot.liftDayId, slot.dow.toUpperCase())
+  }
   // Accordion: at most one day expanded; null = all collapsed (the default).
   const [openDayId, setOpenDayId] = useState<number | null>(null)
   // Structural edit mode (reorder / rename / add / delete) — same vocabulary as
@@ -708,6 +749,8 @@ export function Library() {
         )}
       </div>
 
+      <ProgramCard editMode={editMode} editing={editMode && editing} />
+
       {days.map((day, i) => {
         const rows = exercises
           .filter((e) => e.dayId === day.id)
@@ -724,6 +767,7 @@ export function Library() {
             isFirst={i === 0}
             isLast={i === days.length - 1}
             onMoveDay={(dir) => moveDay(day.id, dir)}
+            scheduledOn={scheduledOn.get(day.id)}
           />
         )
       })}
@@ -752,6 +796,61 @@ export function Library() {
           <PlusGlyph size={13} />
           Add day
         </button>
+      )}
+
+      {editMode && editing && archivedDays.length > 0 && (
+        <div style={{ marginTop: 18 }}>
+          <div
+            style={{
+              fontSize: 10.5,
+              fontWeight: 700,
+              letterSpacing: '0.12em',
+              color: 'var(--color-dim)',
+              padding: '0 2px 8px',
+            }}
+          >
+            ARCHIVED · {archivedDays.length}
+          </div>
+          {archivedDays.map((day) => (
+            <div
+              key={day.id}
+              className="card"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                padding: '12px 14px',
+                borderRadius: 16,
+                marginBottom: 6,
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14.5, fontWeight: 640, color: 'var(--color-sub)' }}>
+                  {day.name}
+                </div>
+                <div style={{ fontSize: 11.5, color: 'var(--color-dim)' }}>
+                  {exercises.filter((e) => e.dayId === day.id).length} exercises
+                </div>
+              </div>
+              <button
+                onClick={() => archiveDay(day.id, false)}
+                className="tap"
+                style={{
+                  fontSize: 12.5,
+                  fontWeight: 640,
+                  borderRadius: 99,
+                  border: '1px solid var(--color-pill-border)',
+                  background: 'transparent',
+                  color: 'var(--color-text)',
+                  padding: '7px 12px',
+                  cursor: 'pointer',
+                }}
+              >
+                Unarchive
+              </button>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   )

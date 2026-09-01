@@ -8,11 +8,15 @@ I tried a bunch of gym apps and none of them did quite what I wanted. Most paywa
 
 ## What it does
 
-- **Pick a day, start, log it.** The app suggests the next day in my rotation, but I can start any of them. Each set comes prefilled with what I did last time — tap to mark it done, or edit the weight/reps to what I actually hit.
-- **Loads carry forward.** Finishing a workout writes each lift's top set back to the Library, so next time prefills from reality instead of a guess.
-- **The plan is editable.** The Library holds the split: add, rename, and reorder days; add, edit, reorder, and remove exercises; set per-set loads (top set plus back-offs). Exercises with the same name across days are linked, so updating one updates all of them.
+- **It knows what today is.** Home shows the current week of my training program and what that day actually asks for — a lift, a run, both, or rest. The week is anchored to a start date, so it advances on its own. I can still tap any other day and start that instead.
+- **Runs are first-class.** Easy and long runs are scheduled with a duration and a heart-rate zone, and logged on their own screen: a clock against the prescribed time, with average HR recorded at the end. Going over the hard cap flags the session; it never blocks saving it.
+- **Minutes, shown in miles.** Runs are prescribed in minutes — that's the point of a Zone 2 block, since the same heart rate buys more distance as fitness comes in. Every duration is also shown as the distance it works out to at my measured Zone 2 pace (2.5 mi in 30 min → 12:00 /mi). Logging the miles I actually covered shows the pace I really held, so the estimate can be corrected rather than assumed.
+- **Log it set by set.** Each set comes prefilled with what I did last time — tap to mark it done, or edit the weight/reps to what I actually hit.
+- **Loads carry forward.** Finishing a workout writes each lift's sets back to the Library, so next time prefills from reality instead of a guess. Deload weeks are the exception: they run a set short on purpose, and that shortfall is deliberately *not* carried back, so the plan doesn't quietly shrink.
+- **The plan is editable.** The Library holds the split: add, rename, and reorder days; add, edit, reorder, and remove exercises; set per-set loads (top set plus back-offs). Each exercise is independent — same-named lifts on other days progress on their own.
 - **Different kinds of load.** Free weight, machine stack/level, plate count, bodyweight (added or assisted), or free text. Each exercise pins how its weight is written so the notation never drifts set to set.
 - **Public to read, password to edit.** The whole log is open to view. Editing asks for a password; enter it once and you're in edit mode for the session. Everything syncs to the cloud, so it's the same on my phone and laptop.
+- **Old plans are archived, not deleted.** Consolidating the split hides the previous days rather than removing them, so every past workout still resolves and rolling back is one tap.
 - **Works offline.** It's a PWA — loads with no signal after the first visit, installs to the home screen, runs fullscreen.
 
 ## How access control works
@@ -51,26 +55,31 @@ Cloud sync is optional locally. Copy `.env.example` to `.env` and fill in your S
 
 On first launch it seeds the split (the six days and their exercises) into IndexedDB. After that your data lives locally and, if configured, syncs to Supabase last-write-wins by timestamp.
 
+The seed only runs on an empty database, so it can't reach an install that already has data. The running program is installed instead from **Library → Program → Edit → Install base phase**, which is idempotent: re-running it never duplicates a week and never resets a load you've since progressed. Archiving the old split and removing the legacy `Cardio` line item are separate, confirmed actions in the same card.
+
 ## Project structure
 
 ```
 src/
   main.tsx        registers the service worker, starts sync, renders
-  App.tsx         routes: / and /library (tabbed) + /log (full-screen)
+  App.tsx         routes: / and /library (tabbed) + /log and /run (full-screen)
   index.css       Tailwind + design tokens + base component styles
   db/
     types.ts      Zod schemas → inferred record types
-    db.ts         Dexie database + indexes (days · exercises · sessions · sets)
-    seed.ts       the 6-day split catalog
+    db.ts         Dexie database + indexes (days · exercises · sessions · sets · programWeeks)
+    seed.ts       the original 6-day split catalog (first launch only)
+    program.ts    the base-phase catalog + the idempotent installer/migration
   lib/
-    rotation.ts   suggested next day, day ordering
+    rotation.ts   day ordering helpers
+    program.ts    the calendar: which week and weekday today is, run copy
+    session.ts    lift-vs-run session helpers
     load.ts       the load grammar (parse/format each load type)
     format.ts     clocks, local-safe dates, set rows
     actions.ts    start → toggle/edit set → finish; library edits; load carry-over
     supabase.ts   the anon client (no auth)
     sync.ts       snapshot serialize/apply, edit mode, push/pull
-  components/      AppLayout, TabBar, CycleRail, IdentityGate, SyncBar, LoadEditor, …
-  screens/        Home, Library, Log
+  components/      AppLayout, TabBar, WeekList, IdentityGate, SyncBar, LoadEditor, …
+  screens/        Home, Library, Log, Run
 scripts/shot.mjs  screenshot loop (headless Chrome at a phone viewport)
 ```
 

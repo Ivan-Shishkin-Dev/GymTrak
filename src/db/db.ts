@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie'
-import type { Day, Exercise, Session, WorkoutSet } from './types'
+import type { Day, Exercise, ProgramWeek, Session, WorkoutSet } from './types'
 
 /**
  * IndexedDB store, accessed through Dexie. Indexed fields are listed in the
@@ -10,6 +10,7 @@ export class GymDB extends Dexie {
   exercises!: Table<Exercise, string>
   sessions!: Table<Session, string>
   sets!: Table<WorkoutSet, string>
+  programWeeks!: Table<ProgramWeek, number>
 
   constructor() {
     super('gymtrak')
@@ -33,6 +34,12 @@ export class GymDB extends Dexie {
     this.version(5).stores({ prs: null })
     // v6: remove the notes feature (Home notepad + per-set comments) — drop the store.
     this.version(6).stores({ notes: null })
+    // v7: the running program — one row per program week, holding its Mon–Sun slots
+    // and run prescriptions. `id` IS the week number, so re-seeding is an idempotent
+    // put. Only 8 rows and every consumer loads all of them, so `id` is the only
+    // index. `days.slug` / `days.archived` and the new `sessions` program fields are
+    // non-indexed, so they need no schema change (see the note below).
+    this.version(7).stores({ programWeeks: 'id' })
     // Note: `exercises.loadType` (added later) is a non-indexed field — Dexie
     // stores it without a schema change, so no version bump is needed for it.
   }

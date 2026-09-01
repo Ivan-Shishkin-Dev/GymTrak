@@ -2,7 +2,16 @@ import { db, uid } from '@/db/db'
 import { dateKey, parseLoad, parseReps, getSetRows } from './format'
 import { isEditMode } from './sync'
 import { dayRank, byDayOrder } from './rotation'
-import type { Day, Exercise, WorkoutSet } from '@/db/types'
+import { RUN_DAY_ID } from '@/db/types'
+import type {
+  Day,
+  Exercise,
+  ProgramSlot,
+  ProgramWeek,
+  RunPrescription,
+  Session,
+  WorkoutSet,
+} from '@/db/types'
 
 /** Open sessions older than this are treated as abandoned, not resumed. */
 export const RESUME_WINDOW_MS = 6 * 60 * 60 * 1000 // 6 hours
@@ -27,31 +36,44 @@ function requireEdit(): void {
  * is started — so "Start workout" gives a clean, reset workout timer instead of
  * resuming one that's been running for hours.
  */
-export async function startSession(
-  day: Day,
-  exercises: Exercise[],
-): Promise<string> {
-  requireEdit()
-  const now = Date.now()
+async function claimOpenSession(
+  isResumable: (s: Session) => boolean,
+): Promise<string | null> {
   // Dexie can't index `null`, so scan for open (unfinished) sessions directly.
   const openSessions = (await db.sessions.toArray()).filter(
     (s) => s.finishedAt == null && !s.deleted,
   )
-  const resumable = openSessions.find(
-    (s) => s.dayId === day.id && now - s.startedAt < RESUME_WINDOW_MS,
-  )
+  const resumable = openSessions.find(isResumable)
   // Discard every open session we're not resuming — clears stale/abandoned ones.
   for (const s of openSessions) {
     if (s.id !== resumable?.id) await discardSession(s.id)
   }
-  if (resumable) return resumable.id
+  return resumable?.id ?? null
+}
+
+export async function startSession(
+  day: Day,
+  exercises: Exercise[],
+  opts?: { deload?: boolean; weekNumber?: number },
+): Promise<string> {
+  requireEdit()
+  const now = Date.now()
+  const resumed = await claimOpenSession(
+    (s) => s.dayId === day.id && now - s.startedAt < RESUME_WINDOW_MS,
+  )
+  if (resumed) return resumed
 
   const sessionId = uid()
   const ordered = [...exercises].sort((a, b) => a.order - b.order)
 
   const sets: WorkoutSet[] = []
   for (const ex of ordered) {
-    getSetRows(ex).forEach((row, i) => {
+    // Deload drops the last working set, but only where there's real volume to
+    // drop — trimming a 2-set exercise to a single set isn't a deload, it's a
+    // different session. Weights are untouched either way.
+    const all = getSetRows(ex)
+    const rows = opts?.deload && all.length >= 3 ? all.slice(0, all.length - 1) : all
+    rows.forEach((row, i) => {
       sets.push({
         id: uid(),
         sessionId,
@@ -77,11 +99,86 @@ export async function startSession(
       finishedAt: null,
       durationSec: null,
       updatedAt: now,
+      type: 'lift',
+      ...(opts?.weekNumber != null ? { weekNumber: opts.weekNumber } : {}),
+      ...(opts?.deload ? { deload: true } : {}),
     })
     await db.sets.bulkAdd(sets)
   })
 
   return sessionId
+}
+
+/**
+ * Start a run from its prescription. A run session carries no `sets` rows at all
+ * — its whole record is the clock and the RunLog — so it lives on /run rather
+ * than /log, and `dayId` is the RUN_DAY_ID sentinel because there's no lift day.
+ *
+ * The prescription is COPIED onto the session rather than referenced, so editing
+ * or re-anchoring the program later can't rewrite what you actually ran.
+ */
+export async function startRun(
+  week: ProgramWeek,
+  slot: ProgramSlot,
+): Promise<string | null> {
+  requireEdit()
+  if (!slot.run) return null
+  const now = Date.now()
+  const p: RunPrescription = slot.run
+
+  const resumed = await claimOpenSession(
+    (s) => s.dayId === RUN_DAY_ID && now - s.startedAt < RESUME_WINDOW_MS,
+  )
+  if (resumed) return resumed
+
+  const sessionId = uid()
+  await db.sessions.add({
+    id: sessionId,
+    dayId: RUN_DAY_ID,
+    date: dateKey(new Date()),
+    startedAt: now,
+    finishedAt: null,
+    durationSec: null,
+    updatedAt: now,
+    type: 'run',
+    weekNumber: week.id,
+    ...(week.isDeload ? { deload: true } : {}),
+    run: {
+      label: p.label,
+      dow: slot.dow,
+      plannedMin: p.durationMin,
+      hrZoneMin: p.hrZoneMin,
+      hrZoneMax: p.hrZoneMax,
+      hrHardCap: p.hrHardCap,
+      strides: p.strides,
+      actualMin: null,
+      actualMi: null,
+      avgHr: null,
+      notes: p.notes,
+    },
+  })
+  return sessionId
+}
+
+/**
+ * Finish a run. Both metrics are optional — a run with no watch reading is still
+ * a run, and an average HR over the hard cap flags the session without ever
+ * blocking the save.
+ */
+export async function finishRun(
+  sessionId: string,
+  metrics: { actualMin: number | null; actualMi: number | null; avgHr: number | null },
+): Promise<void> {
+  requireEdit()
+  const session = await db.sessions.get(sessionId)
+  if (!session?.run) return
+  const now = Date.now()
+  await db.sessions.update(sessionId, {
+    finishedAt: now,
+    durationSec: Math.round((now - session.startedAt) / 1000),
+    updatedAt: now,
+    run: { ...session.run, ...metrics },
+  })
 }
 
 /** Toggle a set done/undone. Returns true if it is now done (so the caller can start rest). */
@@ -124,6 +221,16 @@ export async function updateDay(
 ): Promise<void> {
   requireEdit()
   await db.days.update(id, patch)
+}
+
+/**
+ * Hide a day from the Library without deleting it. Past sessions reference days
+ * by `dayId`, so archiving (rather than `deleteDay`) keeps every historical
+ * session resolvable — and makes rolling back to the old split one tap.
+ */
+export async function archiveDay(id: number, archived: boolean): Promise<void> {
+  requireEdit()
+  await db.days.update(id, { archived })
 }
 
 /** Append a new rotation day at the end of the cycle (next free id). Returns its id. */
@@ -375,11 +482,20 @@ export async function finishSession(sessionId: string): Promise<void> {
         .map((s) => ({ weight: s.weight, reps: s.reps }))
       if (!setRows.length) continue
       const ex = await db.exercises.get(exerciseId)
+      // A deload session deliberately runs a set short. Carry back the loads you
+      // actually used, but keep the plan's trailing set(s) — otherwise finishing
+      // a deload would permanently shrink the template, and you'd come back the
+      // following block quietly running less volume than the program says.
+      const prev = ex?.setRows ?? []
+      const merged =
+        session.deload && prev.length > setRows.length
+          ? [...setRows, ...prev.slice(setRows.length)]
+          : setRows
       const patch: Partial<Exercise> = {
-        setRows,
-        sets: setRows.length,
-        weight: setRows[0].weight,
-        reps: setRows[0].reps,
+        setRows: merged,
+        sets: merged.length,
+        weight: merged[0].weight,
+        reps: merged[0].reps,
       }
       if (ex?.loadType) patch.loadType = ex.loadType
       await db.exercises.update(exerciseId, { ...patch, updatedAt: now })

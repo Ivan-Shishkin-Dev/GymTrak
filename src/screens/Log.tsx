@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
 import { db } from '@/db/db'
+import { isRun } from '@/lib/session'
 import {
   finishSession,
   toggleSet,
@@ -50,11 +51,14 @@ export function Log() {
   // guard: "Finish workout" asks before ending the session (unticked sets are dropped)
   const [confirmFinish, setConfirmFinish] = useState(false)
 
+  // The single open session, if it's a lift. A run lives on /run — it has no day
+  // and no sets, so letting one through here renders a blank screen.
   const open = useLiveQuery(
     () => db.sessions.filter((s) => s.finishedAt == null && !s.deleted).toArray(),
     [],
   )
-  const session = open?.[0]
+  const session = open?.find((s) => !isRun(s))
+  const openRun = open?.find(isRun)
 
   const sets = useLiveQuery(
     () =>
@@ -83,10 +87,13 @@ export function Log() {
     return () => clearInterval(t)
   }, [])
 
-  // no open session (e.g. opened /log directly or after finishing) → go home
+  // No open lift (opened /log directly, or just finished) → leave. If the thing
+  // that's actually running is a run, hand over to /run rather than dropping the
+  // user Home in the middle of it.
   useEffect(() => {
-    if (open !== undefined && open.length === 0) navigate('/', { replace: true })
-  }, [open, navigate])
+    if (open === undefined || session) return
+    navigate(openRun ? '/run' : '/', { replace: true })
+  }, [open, session, openRun, navigate])
 
   if (!session || !day) return null
 

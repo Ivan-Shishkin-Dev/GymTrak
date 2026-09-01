@@ -2,7 +2,7 @@ import { useSyncExternalStore } from 'react'
 import { db } from '@/db/db'
 import { seedIfEmpty } from '@/db/seed'
 import { supabase, isSupabaseConfigured } from './supabase'
-import type { Day, Exercise, Session, WorkoutSet } from '@/db/types'
+import type { Day, Exercise, ProgramWeek, Session, WorkoutSet } from '@/db/types'
 
 /**
  * Public-read / password-write sync.
@@ -26,6 +26,14 @@ type Snapshot = {
   exercises: Exercise[]
   sessions: Session[]
   sets: WorkoutSet[]
+  /**
+   * OPTIONAL on purpose. A snapshot written by a pre-program bundle has no such
+   * key at all, and that is a different fact from "the program is empty" — see
+   * applySnapshot, which preserves rather than clears when it's absent.
+   */
+  programWeeks?: ProgramWeek[]
+  /** Which bundle shape last wrote this row. Ignored by older readers. */
+  schema?: number
 }
 
 const TABLE = 'gt_state'
@@ -127,39 +135,61 @@ let channel: ReturnType<NonNullable<typeof supabase>['channel']> | null = null
 /* ── Snapshot serialize / apply ────────────────────────────────────────────── */
 
 async function serialize(): Promise<Snapshot> {
-  const [days, exercises, sessions, sets] = await Promise.all([
+  const [days, exercises, sessions, sets, programWeeks] = await Promise.all([
     db.days.toArray(),
     db.exercises.toArray(),
     db.sessions.toArray(),
     db.sets.toArray(),
+    db.programWeeks.toArray(),
   ])
-  return { days, exercises, sessions, sets }
+  return { days, exercises, sessions, sets, programWeeks, schema: 2 }
 }
 
 /** Replace the entire local DB with a snapshot. Mutes change hooks while it runs. */
 async function applySnapshot(s: Snapshot): Promise<void> {
+  /*
+   * Forward/backward compatibility for `programWeeks`.
+   *
+   * A snapshot written by a bundle that predates the program has NO programWeeks
+   * key; one written by a current bundle with no weeks installed has `[]`. Those
+   * are different facts, and `?? []` would collapse them — silently wiping the
+   * program every time an older device pushed. So: absent ⇒ keep what we have,
+   * `[]` ⇒ the program really was cleared.
+   */
+  const grafted = s.programWeeks === undefined
+  // Read before muting the hooks: if this throws, `suspended` must not be left
+  // stuck on — that would silently disable every future push.
+  const keepWeeks = grafted ? await db.programWeeks.toArray() : s.programWeeks
   suspended = true
   try {
     await db.transaction(
       'rw',
-      [db.days, db.exercises, db.sessions, db.sets],
+      [db.days, db.exercises, db.sessions, db.sets, db.programWeeks],
       async () => {
         await Promise.all([
           db.days.clear(),
           db.exercises.clear(),
           db.sessions.clear(),
           db.sets.clear(),
+          db.programWeeks.clear(),
         ])
         await Promise.all([
           db.days.bulkAdd(s.days ?? []),
           db.exercises.bulkAdd(s.exercises ?? []),
           db.sessions.bulkAdd(s.sessions ?? []),
           db.sets.bulkAdd(s.sets ?? []),
+          db.programWeeks.bulkAdd(keepWeeks ?? []),
         ])
       },
     )
   } finally {
     suspended = false
+  }
+  // We just kept weeks the cloud doesn't know about, so the cloud is stale. Heal
+  // it on the next push rather than waiting for an unrelated edit to notice.
+  if (grafted && keepWeeks?.length && editMode) {
+    dirty = true
+    schedulePush()
   }
 }
 
@@ -167,7 +197,7 @@ async function applySnapshot(s: Snapshot): Promise<void> {
 async function localMaxUpdatedAt(): Promise<number> {
   const s = await serialize()
   let m = 0
-  for (const arr of [s.exercises, s.sessions, s.sets]) {
+  for (const arr of [s.exercises, s.sessions, s.sets, s.programWeeks ?? []]) {
     for (const r of arr) {
       if (typeof r.updatedAt === 'number' && r.updatedAt > m) m = r.updatedAt
     }
@@ -328,7 +358,7 @@ let hooksRegistered = false
 function registerHooks(): void {
   if (hooksRegistered) return
   hooksRegistered = true
-  const tables = [db.days, db.exercises, db.sessions, db.sets]
+  const tables = [db.days, db.exercises, db.sessions, db.sets, db.programWeeks]
   for (const t of tables) {
     t.hook('creating', () => onLocalChange())
     t.hook('updating', () => onLocalChange())
