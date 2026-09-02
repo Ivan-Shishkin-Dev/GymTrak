@@ -28,6 +28,61 @@ import { BackChevron } from '@/components/icons'
 
 const AMBER = '#f5b945'
 
+/** One tile of the prescription grid: a big condensed number, its unit beside it,
+ *  the label underneath. `divider` draws the hairline on the left (right-hand
+ *  column); `top` draws it above (second row). */
+function Stat({
+  label,
+  value,
+  unit,
+  note,
+  color,
+  divider,
+  top,
+}: {
+  label: string
+  value: string
+  unit: string
+  note?: string
+  color?: string
+  divider?: boolean
+  top?: boolean
+}) {
+  return (
+    <div
+      style={{
+        padding: '14px 18px 13px',
+        borderLeft: divider ? '1px solid var(--color-separator)' : 'none',
+        borderTop: top ? '1px solid var(--color-separator)' : 'none',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 3,
+        minWidth: 0,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 5, minWidth: 0 }}>
+        <span
+          className="display tabular-nums"
+          style={{
+            fontSize: 26,
+            fontWeight: 700,
+            lineHeight: 1,
+            color: color ?? 'var(--color-text)',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {value}
+        </span>
+        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-sub)' }}>{unit}</span>
+      </div>
+      <div style={{ fontSize: 11.5, color: 'var(--color-dim)', whiteSpace: 'nowrap' }}>
+        {label}
+        {note && <span style={{ color: 'var(--color-future)' }}> · {note}</span>}
+      </div>
+    </div>
+  )
+}
+
 const fieldStyle: React.CSSProperties = {
   background: 'var(--color-bg)',
   border: '1px solid var(--color-pill-border)',
@@ -143,8 +198,8 @@ export function Run() {
         >
           <BackChevron />
         </button>
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-          <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.01em' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, gap: 1 }}>
+          <div className="display" style={{ fontSize: 27, fontWeight: 700, lineHeight: 1 }}>
             {run.label}
           </div>
           <div style={{ fontSize: 12.5, color: 'var(--color-sub)' }}>
@@ -153,10 +208,10 @@ export function Run() {
           </div>
         </div>
         <div
-          className="card tabular-nums"
+          className="card display tabular-nums"
           style={{
-            fontSize: 16,
-            fontWeight: 640,
+            fontSize: 18,
+            fontWeight: 600,
             borderRadius: 99,
             borderColor: 'var(--color-pill-border)',
             padding: '8px 14px',
@@ -179,8 +234,8 @@ export function Run() {
         >
           <ProgressRing
             pct={pct}
-            size={200}
-            inner={178}
+            size={228}
+            inner={204}
             color={over ? AMBER : 'var(--color-volt)'}
             glow
           >
@@ -189,12 +244,12 @@ export function Run() {
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
-                gap: 2,
+                gap: 4,
               }}
             >
               <div
-                className="tabular-nums"
-                style={{ fontSize: 40, fontWeight: 760, letterSpacing: '-0.02em' }}
+                className="display tabular-nums"
+                style={{ fontSize: 64, fontWeight: 700, lineHeight: 1, letterSpacing: '-0.01em' }}
               >
                 {fmtClock(elapsed)}
               </div>
@@ -204,46 +259,37 @@ export function Run() {
             </div>
           </ProgressRing>
 
+          {/* The prescription as four tiles — each number big enough to read
+              mid-stride, its unit and label kept small underneath. */}
           <div
-            className="card"
+            className="card list-card"
             style={{
               width: '100%',
-              borderRadius: 22,
-              padding: 20,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 10,
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14 }}>
-              <span style={{ color: 'var(--color-sub)' }}>Duration</span>
-              <span style={{ fontWeight: 660 }}>{run.plannedMin} min</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14 }}>
-              <span style={{ color: 'var(--color-sub)' }}>Distance</span>
-              <span style={{ fontWeight: 660 }}>
-                ≈ {milesLabel(run.plannedMin)}
-                <span style={{ color: 'var(--color-dim)', fontWeight: 500 }}>
-                  {' '}at {paceLabel()}
-                </span>
-              </span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14 }}>
-              <span style={{ color: 'var(--color-sub)' }}>Heart rate</span>
-              <span style={{ fontWeight: 660 }}>
-                {zoneLabel(run.hrZoneMin, run.hrZoneMax)} bpm
-              </span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14 }}>
-              <span style={{ color: 'var(--color-sub)' }}>Hard cap</span>
-              <span style={{ fontWeight: 660, color: AMBER }}>{run.hrHardCap} bpm</span>
-            </div>
+            <Stat label="Duration" value={String(run.plannedMin)} unit="min" />
+            <Stat
+              label="Distance"
+              value={`≈ ${milesLabel(run.plannedMin).replace(/\s*mi$/, '')}`}
+              unit="mi"
+              note={`at ${paceLabel()}`}
+              divider
+            />
+            <Stat
+              label="Heart rate"
+              value={zoneLabel(run.hrZoneMin, run.hrZoneMax)}
+              unit="bpm"
+              top
+            />
+            <Stat label="Hard cap" value={String(run.hrHardCap)} unit="bpm" color={AMBER} divider top />
 
             {run.strides && (
               <div
                 style={{
-                  marginTop: 6,
-                  paddingTop: 12,
+                  gridColumn: '1 / -1',
+                  padding: '12px 18px 16px',
                   borderTop: '1px solid var(--color-separator)',
                 }}
               >
@@ -330,7 +376,7 @@ export function Run() {
               gap: 10,
             }}
           >
-            <div style={{ fontSize: 19, fontWeight: 720, letterSpacing: '-0.01em' }}>
+            <div className="display" style={{ fontSize: 25, fontWeight: 700, lineHeight: 1.05 }}>
               Finish {run.label}?
             </div>
             <div style={{ fontSize: 13.5, color: 'var(--color-sub)', lineHeight: 1.45 }}>

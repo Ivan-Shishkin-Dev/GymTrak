@@ -309,8 +309,16 @@ export function Log() {
                   transition: 'opacity 0.2s ease, background 0.2s ease',
                 }}
               >
-                <div style={{ width: 42, fontSize: 12, color: 'var(--color-sub)' }}>
-                  Set {i + 1}
+                <div
+                  style={{
+                    width: 42,
+                    fontFamily: 'var(--font-mono)',
+                    fontSize: 10.5,
+                    letterSpacing: '0.08em',
+                    color: isActive && !editable ? 'var(--color-volt)' : 'var(--color-dim)',
+                  }}
+                >
+                  SET {i + 1}
                 </div>
                 {/* weight — tap to edit; empty space in this cell still toggles the set */}
                 <div style={{ flex: 1 }}>
@@ -326,11 +334,12 @@ export function Log() {
                     />
                   ) : (
                     <span
-                      className={`tabular-nums${editMode ? ' tap' : ''}`}
+                      className={`display tabular-nums${editMode ? ' tap' : ''}`}
                       onClick={editMode ? (e) => openLoad(e, st, 'weight') : undefined}
                       style={{
-                        fontSize: 16,
-                        fontWeight: 620,
+                        fontSize: 22,
+                        fontWeight: 600,
+                        lineHeight: 1,
                         paddingBottom: 1,
                       }}
                     >
@@ -351,10 +360,12 @@ export function Log() {
                     />
                   ) : (
                     <span
-                      className={`tabular-nums${editMode ? ' tap' : ''}`}
+                      className={`display tabular-nums${editMode ? ' tap' : ''}`}
                       onClick={editMode ? (e) => openLoad(e, st, 'reps') : undefined}
                       style={{
-                        fontSize: 14,
+                        fontSize: 18,
+                        fontWeight: 600,
+                        lineHeight: 1,
                         color: 'var(--color-sub)',
                         paddingBottom: 1,
                       }}
@@ -477,8 +488,8 @@ export function Log() {
         >
           <BackChevron />
         </button>
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-          <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.01em' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
+          <div className="display" style={{ fontSize: 27, fontWeight: 700, lineHeight: 1 }}>
             {day.name}
           </div>
           <div style={{ fontSize: 12.5, color: 'var(--color-sub)' }}>
@@ -509,10 +520,10 @@ export function Log() {
         )}
         {/* Total elapsed time for the workout */}
         <div
-          className="card tabular-nums"
+          className="card display tabular-nums"
           style={{
-            fontSize: 16,
-            fontWeight: 640,
+            fontSize: 18,
+            fontWeight: 600,
             borderRadius: 99,
             borderColor: 'var(--color-pill-border)',
             padding: '8px 14px',
@@ -537,6 +548,7 @@ export function Log() {
               height: '100%',
               borderRadius: 2,
               background: 'var(--color-volt)',
+              boxShadow: '0 0 10px rgba(205, 244, 99, 0.55)',
               width: `${progressPct}%`,
               transition: 'width 0.35s ease',
             }}
@@ -739,7 +751,7 @@ export function Log() {
               gap: 10,
             }}
           >
-            <div style={{ fontSize: 19, fontWeight: 720, letterSpacing: '-0.01em' }}>
+            <div className="display" style={{ fontSize: 25, fontWeight: 700, lineHeight: 1.05 }}>
               Finish {day.name}?
             </div>
             <div style={{ fontSize: 13.5, color: 'var(--color-sub)', lineHeight: 1.45 }}>

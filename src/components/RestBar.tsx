@@ -138,11 +138,11 @@ export function RestBar({
             {overrun ? 'OVER REST' : 'RESTING'}
           </div>
           <div
-            className="tabular-nums"
+            className="display tabular-nums"
             style={{
-              fontSize: 21,
+              fontSize: 27,
               fontWeight: 700,
-              lineHeight: 1.15,
+              lineHeight: 1.05,
               color: overrun ? RED : 'var(--color-text)',
             }}
           >
