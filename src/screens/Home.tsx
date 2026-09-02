@@ -39,8 +39,10 @@ import type { Dow, Exercise } from '@/db/types'
 /** Volt-tinted card surface for the day you're being asked about. */
 const HERO_BACKGROUND =
   'radial-gradient(130% 90% at 15% -10%, rgba(205, 244, 99, 0.13), transparent 55%), var(--color-card)'
+/* A volt hairline along the top edge — the card is lit by the accent, not the
+   room — plus the soft halo that lifts it off the page. */
 const HERO_SHADOW =
-  '0 0 60px -24px rgba(205, 244, 99, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.05)'
+  '0 0 60px -24px rgba(205, 244, 99, 0.22), inset 0 1px 0 rgba(205, 244, 99, 0.28)'
 
 /** Warning accent — shared with the rest timer's overrun state. */
 const AMBER = '#f5b945'
@@ -52,10 +54,11 @@ const eyebrowStyle: React.CSSProperties = {
 }
 
 const headlineStyle: React.CSSProperties = {
-  fontSize: 32,
-  fontWeight: 780,
-  letterSpacing: '-0.02em',
-  lineHeight: 1.04,
+  fontFamily: 'var(--font-display)',
+  fontSize: 40,
+  fontWeight: 700,
+  letterSpacing: '-0.01em',
+  lineHeight: 1,
 }
 
 /** Card-shaped shimmer shown for the blink before the first queries resolve. */
@@ -261,30 +264,43 @@ export function Home() {
                   ? ` · STARTS ${format(parseISO(week.startDate), 'EEE MMM d').toUpperCase()}`
                   : ' · PREVIEW')}
             </div>
-            {([-1, 1] as const).map((dir) => (
-              <button
-                key={dir}
-                className="tap"
-                aria-label={dir < 0 ? 'Previous week' : 'Next week'}
-                disabled={!weekList.some((w) => w.id === week.id + dir)}
-                onClick={() => stepWeek(dir)}
-                style={{
-                  width: 30,
-                  height: 30,
-                  borderRadius: '50%',
-                  border: '1px solid var(--color-pill-border)',
-                  background: 'transparent',
-                  color: 'var(--color-sub)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  opacity: weekList.some((w) => w.id === week.id + dir) ? 1 : 0.3,
-                }}
-              >
-                {dir < 0 ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
-              </button>
-            ))}
+            {/* One stepper, two ends — a joined pill rather than two loose dots */}
+            <div
+              className="card"
+              style={{
+                display: 'flex',
+                borderRadius: 16,
+                borderColor: 'var(--color-pill-border)',
+                overflow: 'hidden',
+              }}
+            >
+              {([-1, 1] as const).map((dir) => {
+                const can = weekList.some((w) => w.id === week.id + dir)
+                return (
+                  <button
+                    key={dir}
+                    className="tap"
+                    aria-label={dir < 0 ? 'Previous week' : 'Next week'}
+                    disabled={!can}
+                    onClick={() => stepWeek(dir)}
+                    style={{
+                      width: 38,
+                      height: 30,
+                      border: 'none',
+                      borderLeft: dir > 0 ? '1px solid var(--color-separator)' : 'none',
+                      background: 'transparent',
+                      color: can ? 'var(--color-text)' : 'var(--color-future)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: can ? 'pointer' : 'default',
+                    }}
+                  >
+                    {dir < 0 ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
+                  </button>
+                )
+              })}
+            </div>
           </div>
 
           {week.isDeload && (
@@ -477,14 +493,16 @@ export function Home() {
           <div style={{ ...eyebrowStyle, color: 'var(--color-dim)', marginTop: 2 }}>
             {onTodayWeek ? 'THIS WEEK' : `WEEK ${week.id}`}
           </div>
-          <WeekList
-            week={week}
-            days={dayList}
-            doneDates={doneDates}
-            todayKey={todayKey}
-            selected={dow}
-            onSelect={(d) => setSelDow(d)}
-          />
+          <div className="card list-card">
+            <WeekList
+              week={week}
+              days={dayList}
+              doneDates={doneDates}
+              todayKey={todayKey}
+              selected={dow}
+              onSelect={(d) => setSelDow(d)}
+            />
+          </div>
         </>
       )}
 
@@ -494,7 +512,7 @@ export function Home() {
           className="card"
           style={{ borderRadius: 24, padding: 22, display: 'flex', flexDirection: 'column', gap: 14 }}
         >
-          <div style={{ fontSize: 19, fontWeight: 720, letterSpacing: '-0.01em' }}>
+          <div className="display" style={{ fontSize: 25, fontWeight: 700, lineHeight: 1.05 }}>
             {weekList.length ? 'No week scheduled' : 'No program yet'}
           </div>
           <div style={{ fontSize: 13.5, color: 'var(--color-sub)', lineHeight: 1.5 }}>
@@ -566,7 +584,7 @@ export function Home() {
               gap: 10,
             }}
           >
-            <div style={{ fontSize: 19, fontWeight: 720, letterSpacing: '-0.01em' }}>
+            <div className="display" style={{ fontSize: 25, fontWeight: 700, lineHeight: 1.05 }}>
               Discard the {openName} session?
             </div>
             <div style={{ fontSize: 13.5, color: 'var(--color-sub)', lineHeight: 1.45 }}>

@@ -10,7 +10,8 @@ import type { Dow, Day, ProgramWeek } from '@/db/types'
  * exists to answer is "what am I doing". A row is wide enough to just say it.
  *
  * Tapping a row selects it, which drives the card above; today is marked, and a
- * day with a finished session gets a check.
+ * day with a finished session gets a check. Renders as a stack of hairline-
+ * separated rows meant to sit inside a `.card.list-card`.
  */
 
 export function WeekList({
@@ -30,8 +31,8 @@ export function WeekList({
   onSelect: (dow: Dow) => void
 }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-      {DOWS.map((dow) => {
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
+      {DOWS.map((dow, i) => {
         const slot = week.slots.find((s) => s.dow === dow)
         const date = slotDate(week, dow)
         const isToday = date === todayKey
@@ -52,13 +53,13 @@ export function WeekList({
               alignItems: 'center',
               gap: 12,
               width: '100%',
-              padding: '11px 12px',
-              borderRadius: 12,
+              padding: '12px 16px 12px 14px',
               // The selected row is the loud state — it's what the card is
               // showing. Today is quieter, marked by the dot on the right.
               background: isSel ? 'var(--color-volt-tint)' : 'transparent',
               border: 'none',
-              borderLeft: `2px solid ${isSel ? 'var(--color-volt)' : 'transparent'}`,
+              borderTop: i > 0 ? '1px solid var(--color-separator)' : 'none',
+              boxShadow: isSel ? 'inset 2px 0 0 var(--color-volt)' : 'none',
               color: 'var(--color-text)',
               textAlign: 'left',
               cursor: 'pointer',
@@ -68,7 +69,7 @@ export function WeekList({
             <span
               style={{
                 fontFamily: 'var(--font-mono)',
-                fontSize: 10,
+                fontSize: 10.5,
                 letterSpacing: '0.1em',
                 width: 34,
                 flexShrink: 0,
@@ -86,7 +87,7 @@ export function WeekList({
               style={{
                 flex: 1,
                 minWidth: 0,
-                fontSize: 14,
+                fontSize: 14.5,
                 fontWeight: isSel ? 640 : 520,
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
