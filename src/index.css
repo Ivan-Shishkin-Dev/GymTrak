@@ -23,8 +23,16 @@
   --color-dot-on: rgba(255, 255, 255, 0.45);
   --color-d9: #d9d9de;
 
+  --color-amber: #f5b945;
+  --color-red: #ff5a5a;
+
   --font-sans: -apple-system, 'SF Pro', system-ui, sans-serif;
   --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  /* Display face — a semi-condensed grotesk for titles, headlines and the big
+     numerals (loads, clocks). Condensed figures are the vernacular of the
+     subject: stamped plates, watch faces, whiteboard splits. Self-hosted via
+     @fontsource (imported in main.tsx) so it's precached and works offline. */
+  --font-display: 'Barlow Semi Condensed', -apple-system, 'SF Pro', system-ui, sans-serif;
 }
 
 html {
@@ -116,18 +124,48 @@ textarea,
     animation: screen-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) backwards;
   }
 
-  /* The standard near-black card with a 1px border — depth via border, no shadow */
+  /* The standard near-black card — a faint top-to-bottom falloff plus a 1px
+     highlight along the top edge, so it reads as a machined surface lit from
+     above rather than a flat grey rectangle. Depth via edge, still no drop
+     shadow. */
   .card {
-    background: var(--color-card);
+    background: linear-gradient(180deg, #17171b 0%, #111114 100%);
     border: 1px solid var(--color-card-border);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+
+  /* Display type — the semi-condensed face for anything that has to carry the
+     screen: titles, the day's headline, clocks, loads. */
+  .display {
+    font-family: var(--font-display);
+    letter-spacing: -0.005em;
   }
 
   .screen-title {
-    font-size: 34px;
-    font-weight: 760;
-    letter-spacing: -0.02em;
+    font-family: var(--font-display);
+    font-size: 42px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    line-height: 1;
     color: var(--color-text);
     padding: 6px 0 8px;
+  }
+
+  /* Mono eyebrow — the small tracked label above a section or a card. */
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+  }
+
+  /* A card that holds a list of rows: rows are separated by hairlines and the
+     card clips their highlight to its own radius. */
+  .list-card {
+    border-radius: 22px;
+    overflow: hidden;
+  }
+  .list-card > * + * {
+    border-top: 1px solid var(--color-separator);
   }
 
   /* Tap feedback — touch-first, no hover */

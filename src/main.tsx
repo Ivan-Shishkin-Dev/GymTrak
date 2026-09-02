@@ -3,6 +3,9 @@ import { createRoot } from 'react-dom/client'
 import { registerSW } from 'virtual:pwa-register'
 import { App } from './App'
 import { initSync } from './lib/sync'
+// Display face (latin only, 2 × 24 KB) — see --font-display in index.css.
+import '@fontsource/barlow-semi-condensed/latin-600.css'
+import '@fontsource/barlow-semi-condensed/latin-700.css'
 import './index.css'
 
 // keep the cached app shell fresh in the background
