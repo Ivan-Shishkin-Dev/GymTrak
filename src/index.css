@@ -109,8 +109,11 @@ textarea,
     flex-direction: column;
     gap: 14px;
     padding: calc(74px + env(safe-area-inset-top)) 20px 16px;
-    /* Fade + gentle rise on entry — replays on every navigation (screens remount) */
-    animation: screen-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+    /* Fade + gentle rise on entry — replays on every navigation (screens remount).
+       `backwards`, not `both`: a retained end-state transform would make this the
+       containing block for the screen's fixed-position dialogs, and they'd stop
+       covering the resume banner and tab bar below. */
+    animation: screen-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) backwards;
   }
 
   /* The standard near-black card with a 1px border — depth via border, no shadow */
