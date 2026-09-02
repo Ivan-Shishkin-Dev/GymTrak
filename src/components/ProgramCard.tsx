@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
-import { addDays, format, isMonday, nextMonday, parseISO } from 'date-fns'
+import { addDays, format, parseISO } from 'date-fns'
 import { db } from '@/db/db'
 import { dateKey } from '@/lib/format'
 import { milesLabel, paceLabel, weekFor, weekMinutes } from '@/lib/program'
@@ -9,6 +9,7 @@ import {
   BASE_LAST_WEEK,
   installBasePhase,
   setProgramStart,
+  upcomingMonday,
 } from '@/db/program'
 import { ChevronDown } from '@/components/icons'
 import type { ProgramWeek } from '@/db/types'
@@ -21,15 +22,6 @@ import type { ProgramWeek } from '@/db/types'
  * Cardio line item. Both sit behind the same full-screen confirm the Library uses
  * for deleting a day, because neither is something you want on a mis-tap.
  */
-
-/**
- * The Monday to start on. `nextMonday` is strictly future, so on a Monday it
- * would skip a whole week — if you're installing the program that morning, that
- * Monday is the one you mean.
- */
-function upcomingMonday(now: Date): Date {
-  return isMonday(now) ? now : nextMonday(now)
-}
 
 const inputStyle: React.CSSProperties = {
   background: 'var(--color-bg)',

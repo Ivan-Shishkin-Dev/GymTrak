@@ -53,9 +53,9 @@ npm run preview  # serve the build (service worker is active here)
 
 Cloud sync is optional locally. Copy `.env.example` to `.env` and fill in your Supabase URL and anon/publishable key to turn it on. Without it the app still runs fully offline against local storage — it just won't sync.
 
-On first launch it seeds the split (the six days and their exercises) into IndexedDB. After that your data lives locally and, if configured, syncs to Supabase last-write-wins by timestamp.
+On first launch it seeds the split (the four lift days and their exercises) plus the eight-week running base phase, anchored to the upcoming Monday, into IndexedDB. After that your data lives locally and, if configured, syncs to Supabase last-write-wins by timestamp.
 
-The seed only runs on an empty database, so it can't reach an install that already has data. The running program is installed instead from **Library → Program → Edit → Install base phase**, which is idempotent: re-running it never duplicates a week and never resets a load you've since progressed. Archiving the old split and removing the legacy `Cardio` line item are separate, confirmed actions in the same card.
+The seed only runs on an empty database, so it can't reach an install that already has data. There the same split and program are installed from **Library → Program → Edit → Install base phase**, which is idempotent: re-running it never duplicates a week and never resets a load you've since progressed. Archiving the previous six-day split and removing its `Cardio` line item are separate, confirmed actions in the same card; archived days stay in the database so every past workout still resolves.
 
 ## Project structure
 
@@ -67,8 +67,9 @@ src/
   db/
     types.ts      Zod schemas → inferred record types
     db.ts         Dexie database + indexes (days · exercises · sessions · sets · programWeeks)
-    seed.ts       the original 6-day split catalog (first launch only)
-    program.ts    the base-phase catalog + the idempotent installer/migration
+    templates.ts  the split (four lift days) + the base-phase weeks, as data
+    seed.ts       first-launch seed: builds an empty database from the templates
+    program.ts    the idempotent installer/migration for a database that has data
   lib/
     rotation.ts   day ordering helpers
     program.ts    the calendar: which week and weekday today is, run copy
