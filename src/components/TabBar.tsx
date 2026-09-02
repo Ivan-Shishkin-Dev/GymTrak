@@ -8,7 +8,9 @@ const TABS = [
 
 /** Docked tab bar — a solid band holding the blurred pill nav. It occupies real
  *  layout space at the bottom (not a floating overlay), so screen content sits
- *  above it and can never hide behind it. Shown on every screen except /log. */
+ *  above it and can never hide behind it. Shown on every screen except /log.
+ *  Each tab is an icon over its name; the active one is volt, the same "you are
+ *  here" the week list uses. */
 export function TabBar() {
   return (
     <div
@@ -19,16 +21,18 @@ export function TabBar() {
       }}
     >
       <nav
+        className="card"
         style={{
-          height: 62,
+          height: 64,
           borderRadius: 32,
           background: 'rgba(19,19,22,0.92)',
-          border: '1px solid var(--color-pill-border)',
+          borderColor: 'var(--color-pill-border)',
           backdropFilter: 'blur(20px)',
           WebkitBackdropFilter: 'blur(20px)',
           display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-around',
+          alignItems: 'stretch',
+          padding: 4,
+          gap: 4,
         }}
       >
         {TABS.map(({ to, Icon, label }) => (
@@ -39,14 +43,30 @@ export function TabBar() {
             aria-label={label}
             className="tap"
             style={({ isActive }) => ({
-              color: isActive ? 'var(--color-text)' : 'var(--color-idle)',
-              padding: '12px 18px',
+              flex: 1,
+              color: isActive ? 'var(--color-volt)' : 'var(--color-idle)',
+              background: isActive ? 'var(--color-volt-tint)' : 'transparent',
+              borderRadius: 28,
               display: 'flex',
+              flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
+              gap: 3,
+              textDecoration: 'none',
+              transition: 'color 0.15s ease, background 0.15s ease',
             })}
           >
             <Icon />
+            <span
+              style={{
+                fontSize: 10.5,
+                fontWeight: 640,
+                letterSpacing: '0.02em',
+                lineHeight: 1,
+              }}
+            >
+              {label}
+            </span>
           </NavLink>
         ))}
       </nav>
