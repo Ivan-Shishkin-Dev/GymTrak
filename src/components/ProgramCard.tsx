@@ -104,7 +104,7 @@ function Confirm({
           gap: 10,
         }}
       >
-        <div style={{ fontSize: 19, fontWeight: 720, letterSpacing: '-0.01em' }}>
+        <div className="display" style={{ fontSize: 25, fontWeight: 700, lineHeight: 1.05 }}>
           {title}
         </div>
         <div style={{ fontSize: 13.5, color: 'var(--color-sub)', lineHeight: 1.45 }}>
@@ -214,7 +214,7 @@ export function ProgramCard({
         }}
       >
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 16.5, fontWeight: 700, letterSpacing: '-0.01em' }}>
+          <div className="display" style={{ fontSize: 21, fontWeight: 700, lineHeight: 1.05 }}>
             Program
           </div>
           <div style={{ fontSize: 12, color: 'var(--color-sub)', marginTop: 2 }}>

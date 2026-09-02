@@ -85,7 +85,7 @@ export function ResumeBanner() {
         <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-volt)', letterSpacing: '0.04em' }}>
           {running ? 'RUN IN PROGRESS' : 'WORKOUT IN PROGRESS'}
         </div>
-        <div style={{ fontSize: 15, fontWeight: 660, lineHeight: 1.2 }}>
+        <div className="display" style={{ fontSize: 20, fontWeight: 700, lineHeight: 1.1 }}>
           {sessionTitle(session, day?.name)}
           {running ? (
             <span style={{ color: 'var(--color-sub)', fontWeight: 500 }}>

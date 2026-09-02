@@ -418,10 +418,11 @@ function Section({
       </div>
       <div
         id={titleId}
+        className="display"
         style={{
-          fontSize: 25,
-          fontWeight: 760,
-          letterSpacing: '-0.02em',
+          fontSize: 30,
+          fontWeight: 700,
+          lineHeight: 1.05,
           marginTop: 7,
           color: 'var(--color-text)',
         }}

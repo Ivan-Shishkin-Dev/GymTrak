@@ -274,9 +274,11 @@ function DayCard({
             <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
              <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
               <span
+                className="display"
                 style={{
-                  fontSize: 15,
-                  fontWeight: 660,
+                  fontSize: 21,
+                  fontWeight: 700,
+                  lineHeight: 1,
                   color: 'var(--color-text)',
                   whiteSpace: 'nowrap',
                   overflow: 'hidden',
@@ -642,7 +644,7 @@ function DayCard({
               gap: 10,
             }}
           >
-            <div style={{ fontSize: 19, fontWeight: 720, letterSpacing: '-0.01em' }}>
+            <div className="display" style={{ fontSize: 25, fontWeight: 700, lineHeight: 1.05 }}>
               Delete {day.name}?
             </div>
             <div style={{ fontSize: 13.5, color: 'var(--color-sub)', lineHeight: 1.45 }}>
