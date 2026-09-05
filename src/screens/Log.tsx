@@ -13,16 +13,18 @@ import {
   removeSet,
   addExerciseToSession,
   removeExerciseFromSession,
+  discardSession,
 } from '@/lib/actions'
 import { useEditMode } from '@/lib/sync'
 import { startRest, stopRest } from '@/lib/restTimer'
 import { fmtClock } from '@/lib/format'
-import { inferLoadType } from '@/lib/load'
+import { formatLoad, inferLoadType, parseLoad } from '@/lib/load'
 import { BackChevron, PlusGlyph, TrashGlyph } from '@/components/icons'
 import { RestBar } from '@/components/RestBar'
 import { MoveButtons } from '@/components/MoveButtons'
 import { LoadEditor, RepsField } from '@/components/LoadEditor'
 import type { Exercise, LoadType, WorkoutSet } from '@/db/types'
+import { DiscardDialog } from '@/components/DiscardDialog'
 
 type Group = { ex: Exercise; sets: WorkoutSet[] }
 
@@ -50,6 +52,8 @@ export function Log() {
   const [nameDraft, setNameDraft] = useState<{ id: string; text: string } | null>(null)
   // guard: "Finish workout" asks before ending the session (unticked sets are dropped)
   const [confirmFinish, setConfirmFinish] = useState(false)
+  const [focusMode, setFocusMode] = useState(true)
+  const [confirmDiscard, setConfirmDiscard] = useState(false)
 
   // The single open session, if it's a lift. A run lives on /run — it has no day
   // and no sets, so letting one through here renders a blank screen.
@@ -117,6 +121,8 @@ export function Log() {
   // the next set still to do, in workout order — gets the volt "you're here" ring
   const activeSetId =
     groups.flatMap((g) => g.sets).find((s) => s.completedAt == null)?.id ?? null
+  const focusedGroup = groups.find((g) => g.sets.some((s) => s.id === activeSetId))
+  const visibleActiveGroups = focusMode && focusedGroup ? [focusedGroup] : activeGroups
 
   async function onToggle(id: string, exId: string) {
     if (!editMode || editing) return
@@ -132,7 +138,8 @@ export function Log() {
     const nowDone = await toggleSet(id)
     if (nowDone) {
       if ('vibrate' in navigator) navigator.vibrate(15)
-      startRest() // a set just landed → start (or restart) the rest countdown
+      const exercise = exercises.find((ex) => ex.id === exId)
+      startRest(exercise?.restSeconds) // per-exercise target, falling back to the global default
     }
   }
 
@@ -153,6 +160,19 @@ export function Log() {
     await updateSetLoad(st.id, weight, reps)
   }
 
+  async function adjustLoad(st: WorkoutSet, ex: Exercise, direction: -1 | 1) {
+    const type = ex.loadType ?? inferLoadType(st.weight)
+    if (type === 'free') return
+    const parsed = parseLoad(st.weight, type)
+    const increment = ex.loadIncrement ?? (type === 'plates' || type === 'machine' ? 1 : 5)
+    if (type === 'weight' || (type === 'machine' && !parsed.max) || type === 'plates') {
+      parsed.n = Math.max(0, (parsed.n ?? 0) + increment * direction)
+    } else {
+      parsed.add = (parsed.add ?? 0) + increment * direction
+    }
+    await updateSetLoad(st.id, formatLoad(parsed), st.reps)
+  }
+
   function cancelLoad() {
     setEditingLoad(null)
     setLoadDraft('')
@@ -168,15 +188,26 @@ export function Log() {
 
   async function proceedFinish() {
     if (!editMode) return
+    const completedSessionId = session!.id
+    const completedLabel = day!.name
     setConfirmFinish(false)
     stopRest()
-    await finishSession(session!.id)
-    navigate('/', { replace: true })
+    await finishSession(completedSessionId)
+    navigate('/', {
+      replace: true,
+      state: { completedSessionId, completedLabel },
+    })
   }
 
   async function onAddExercise() {
     const id = await addExerciseToSession(session!.id, session!.dayId)
     setNameDraft({ id, text: 'New exercise' })
+  }
+
+  async function proceedDiscard() {
+    stopRest()
+    await discardSession(session!.id)
+    navigate('/', { replace: true })
   }
 
   /* ── one exercise card with its set rows ──────────────────────────────────
@@ -191,7 +222,7 @@ export function Log() {
     const renaming = nameDraft?.id === ex.id
 
     return (
-      <div key={ex.id} className="card" style={{ borderRadius: 22, padding: '8px 18px 12px' }}>
+      <div key={ex.id} className="card" style={{ borderRadius: 16, padding: '8px 18px 12px' }}>
         {/* header — name, plus reorder / delete when editing */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 0 4px' }}>
           {editable && (
@@ -295,6 +326,14 @@ export function Log() {
               <div
                 key={st.id}
                 onClick={editable ? undefined : () => onToggle(st.id, ex.id)}
+                role={editable ? undefined : 'button'}
+                tabIndex={editable ? undefined : 0}
+                onKeyDown={editable ? undefined : (event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    void onToggle(st.id, ex.id)
+                  }
+                }}
                 className={editable ? undefined : 'tap'}
                 style={{
                   display: 'flex',
@@ -333,18 +372,21 @@ export function Log() {
                       onCancel={cancelLoad}
                     />
                   ) : (
-                    <span
-                      className={`display tabular-nums${editMode ? ' tap' : ''}`}
-                      onClick={editMode ? (e) => openLoad(e, st, 'weight') : undefined}
-                      style={{
-                        fontSize: 22,
-                        fontWeight: 600,
-                        lineHeight: 1,
-                        paddingBottom: 1,
-                      }}
-                    >
-                      {st.weight || '—'}
-                    </span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      {isActive && !editable && loadType !== 'free' && (
+                        <QuickAdjust label={`Decrease ${ex.name} load`} onClick={(e) => { e.stopPropagation(); void adjustLoad(st, ex, -1) }}>−</QuickAdjust>
+                      )}
+                      <span
+                        className={`display tabular-nums${editMode ? ' tap' : ''}`}
+                        onClick={editMode ? (e) => openLoad(e, st, 'weight') : undefined}
+                        style={{ fontSize: 22, fontWeight: 600, lineHeight: 1, paddingBottom: 1 }}
+                      >
+                        {st.weight || '—'}
+                      </span>
+                      {isActive && !editable && loadType !== 'free' && (
+                        <QuickAdjust label={`Increase ${ex.name} load`} onClick={(e) => { e.stopPropagation(); void adjustLoad(st, ex, 1) }}>+</QuickAdjust>
+                      )}
+                    </div>
                   )}
                 </div>
                 {/* reps — tap to edit */}
@@ -449,6 +491,17 @@ export function Log() {
             <PlusGlyph size={12} /> Add set
           </button>
         )}
+
+        {editable && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
+            <label style={settingLabel}>Load step
+              <input type="number" inputMode="decimal" value={ex.loadIncrement ?? (loadType === 'plates' || loadType === 'machine' ? 1 : 5)} onChange={(e) => updateExercise(ex.id, { loadIncrement: Math.max(0.5, Number(e.target.value)) })} style={settingField} />
+            </label>
+            <label style={settingLabel}>Rest seconds
+              <input type="number" inputMode="numeric" value={ex.restSeconds ?? 180} onChange={(e) => updateExercise(ex.id, { restSeconds: Math.max(15, Number(e.target.value)) })} style={settingField} />
+            </label>
+          </div>
+        )}
       </div>
     )
   }
@@ -466,7 +519,7 @@ export function Log() {
       {/* Header */}
       <div
         style={{
-          padding: `calc(70px + env(safe-area-inset-top)) 20px 12px`,
+          padding: `calc(42px + env(safe-area-inset-top)) 20px 12px`,
           display: 'flex',
           alignItems: 'center',
           gap: 12,
@@ -569,6 +622,16 @@ export function Log() {
           gap: 12,
         }}
       >
+        {!editing && activeGroups.length > 1 && (
+          <div style={{ display: 'flex', gap: 6 }}>
+            {([true, false] as const).map((focused) => (
+              <button key={String(focused)} className="tap" onClick={() => setFocusMode(focused)} style={{ flex: 1, height: 36, borderRadius: 10, border: '1px solid var(--color-pill-border)', background: focusMode === focused ? 'var(--color-volt-tint)' : 'transparent', color: focusMode === focused ? 'var(--color-volt)' : 'var(--color-sub)', fontSize: 12.5, fontWeight: 650 }}>
+                {focused ? 'Current exercise' : 'Overview'}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Only the unusual modes need explaining — a normal workout doesn't */}
         {(!editMode || editing) && (
           <div style={{ fontSize: 12, color: 'var(--color-faint)', padding: '0 2px' }}>
@@ -579,7 +642,7 @@ export function Log() {
         )}
 
         {/* Active exercises (not yet fully done) */}
-        {activeGroups.map((g) => renderCard(g, groups.indexOf(g), editing))}
+        {visibleActiveGroups.map((g) => renderCard(g, groups.indexOf(g), editing))}
 
         {/* Add exercise — only while editing */}
         {editing && (
@@ -603,6 +666,12 @@ export function Log() {
             }}
           >
             <PlusGlyph size={14} /> Add exercise
+          </button>
+        )}
+
+        {editing && (
+          <button className="tap" onClick={() => setConfirmDiscard(true)} style={{ alignSelf: 'center', border: 0, background: 'transparent', color: 'var(--color-red)', padding: '8px 12px', fontSize: 12.5, fontWeight: 650 }}>
+            Discard workout
           </button>
         )}
 
@@ -640,7 +709,7 @@ export function Log() {
                   onClick={() => setExpanded((prev) => new Set(prev).add(g.ex.id))}
                   className="card tap"
                   style={{
-                    borderRadius: 22,
+                    borderRadius: 16,
                     padding: '14px 18px',
                     display: 'flex',
                     alignItems: 'center',
@@ -796,6 +865,25 @@ export function Log() {
           </div>
         </div>
       )}
+      {confirmDiscard && (
+        <DiscardDialog title={`Discard ${day.name}?`} body="This removes the unfinished workout and its set changes. Completed history and the plan stay untouched." onCancel={() => setConfirmDiscard(false)} onConfirm={() => void proceedDiscard()} />
+      )}
     </div>
   )
 }
+
+function QuickAdjust({ children, label, onClick }: { children: React.ReactNode; label: string; onClick: (event: React.MouseEvent<HTMLButtonElement>) => void }) {
+  return (
+    <button
+      className="tap press"
+      aria-label={label}
+      onClick={onClick}
+      style={{ width: 40, height: 40, flexShrink: 0, marginBlock: -6, borderRadius: 10, border: '1px solid var(--color-pill-border)', background: 'var(--color-card)', color: 'var(--color-text)', fontSize: 19, lineHeight: 1 }}
+    >
+      {children}
+    </button>
+  )
+}
+
+const settingLabel: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, color: 'var(--color-sub)', fontSize: 11 }
+const settingField: React.CSSProperties = { width: '100%', boxSizing: 'border-box', height: 34, borderRadius: 8, border: '1px solid var(--color-pill-border)', background: 'var(--color-bg)', color: 'var(--color-text)', padding: '0 8px', fontSize: 13 }

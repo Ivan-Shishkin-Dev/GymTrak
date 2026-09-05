@@ -1,5 +1,5 @@
 import { Lock, KeyRound, Check, RefreshCw, Cloud } from 'lucide-react'
-import { useSyncState, exitEditMode, openEditPrompt } from '@/lib/sync'
+import { useSyncState, exitEditMode, openEditPrompt, retrySync } from '@/lib/sync'
 
 /**
  * Compact sync/mode cluster for the Home title row. When editing (the normal
@@ -38,12 +38,12 @@ export function SyncBar() {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
       {error && (
-        <span style={{ fontSize: 11, color: '#ff5a5a', fontFamily: 'var(--font-mono)' }}>
-          Sync error
-        </span>
+        <button className="tap" title={state.error ?? 'Retry sync'} onClick={() => void retrySync()} style={{ border: 0, background: 'transparent', padding: '6px 2px', fontSize: 11, color: '#ff5a5a', fontFamily: 'var(--font-mono)', cursor: 'pointer' }}>
+          Retry sync
+        </button>
       )}
       <span
-        title={statusText}
+        title={state.lastSyncedAt ? `${statusText} ${new Date(state.lastSyncedAt).toLocaleTimeString()}` : statusText}
         style={{ display: 'flex', color: error ? '#ff5a5a' : 'var(--color-dim)' }}
       >
         <StatusIcon size={14} strokeWidth={2.2} />

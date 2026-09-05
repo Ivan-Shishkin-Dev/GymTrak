@@ -2,19 +2,19 @@
 
 /* ── Design tokens ───────────────────────────────────────────────────────── */
 @theme {
-  --color-bg: #060607;
-  --color-card: #131316;
-  --color-card-border: rgba(255, 255, 255, 0.07);
-  --color-pill-border: rgba(255, 255, 255, 0.08);
-  --color-text: #f4f4f5;
-  --color-sub: #8e8e93;
-  --color-faint: #6f6f75;
-  --color-dim: #5a5a5f;
-  --color-idle: #56565c;
+  --color-bg: #0b0b0c;
+  --color-card: #151517;
+  --color-card-border: rgba(255, 255, 255, 0.065);
+  --color-pill-border: rgba(255, 255, 255, 0.1);
+  --color-text: #f2f2ef;
+  --color-sub: #9a9a96;
+  --color-faint: #73736f;
+  --color-dim: #62625f;
+  --color-idle: #676763;
   --color-future: #3d3d42;
-  --color-volt: #cdf463;
-  --color-on-volt: #15170a;
-  --color-volt-tint: rgba(205, 244, 99, 0.1);
+  --color-volt: #d2f56f;
+  --color-on-volt: #171b09;
+  --color-volt-tint: rgba(210, 245, 111, 0.09);
   --color-track: rgba(255, 255, 255, 0.1);
   --color-ring-off: rgba(255, 255, 255, 0.13);
   --color-check-border: rgba(255, 255, 255, 0.22);
@@ -115,8 +115,8 @@ textarea,
   .screen {
     display: flex;
     flex-direction: column;
-    gap: 14px;
-    padding: calc(74px + env(safe-area-inset-top)) 20px 16px;
+    gap: 12px;
+    padding: calc(44px + env(safe-area-inset-top)) 20px 20px;
     /* Fade + gentle rise on entry — replays on every navigation (screens remount).
        `backwards`, not `both`: a retained end-state transform would make this the
        containing block for the screen's fixed-position dialogs, and they'd stop
@@ -124,14 +124,12 @@ textarea,
     animation: screen-in 0.32s cubic-bezier(0.22, 1, 0.36, 1) backwards;
   }
 
-  /* The standard near-black card — a faint top-to-bottom falloff plus a 1px
-     highlight along the top edge, so it reads as a machined surface lit from
-     above rather than a flat grey rectangle. Depth via edge, still no drop
-     shadow. */
+  /* The standard card stays flat and quiet. Hierarchy comes from spacing and a
+     single hairline instead of gradients or shadows. */
   .card {
-    background: linear-gradient(180deg, #17171b 0%, #111114 100%);
+    background: var(--color-card);
     border: 1px solid var(--color-card-border);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    box-shadow: none;
   }
 
   /* Display type — the semi-condensed face for anything that has to carry the
@@ -143,12 +141,12 @@ textarea,
 
   .screen-title {
     font-family: var(--font-display);
-    font-size: 42px;
+    font-size: 34px;
     font-weight: 700;
     letter-spacing: -0.01em;
     line-height: 1;
     color: var(--color-text);
-    padding: 6px 0 8px;
+    padding: 4px 0 6px;
   }
 
   /* Mono eyebrow — the small tracked label above a section or a card. */
@@ -161,7 +159,7 @@ textarea,
   /* A card that holds a list of rows: rows are separated by hairlines and the
      card clips their highlight to its own radius. */
   .list-card {
-    border-radius: 22px;
+    border-radius: 16px;
     overflow: hidden;
   }
   .list-card > * + * {

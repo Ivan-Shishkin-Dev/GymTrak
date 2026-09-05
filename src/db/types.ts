@@ -21,6 +21,7 @@ export const DaySchema = z.object({
   // keys off this instead. Absent on the six legacy seed days, which is what makes
   // "archive everything without a slug" a safe, idempotent one-shot.
   archived: z.boolean().optional(), // hidden from the Library; past sessions still resolve
+  updatedAt: z.number().optional(), // optional for snapshots created before record-level timestamps
 })
 export type Day = z.infer<typeof DaySchema>
 
@@ -63,6 +64,8 @@ export const ExerciseSchema = z.object({
   libLoad: z.string().optional(), // legacy "Description" — no UI writes it anymore; kept for old snapshots
   setRows: z.array(SetRowSchema).optional(), // per-set loads; falls back to sets×weight/reps when absent
   loadType: LoadTypeSchema.optional(), // how `weight` is entered; inferred from the string when absent
+  loadIncrement: z.number().positive().optional(), // one-tap adjustment used in the live logger
+  restSeconds: z.number().int().positive().optional(), // per-exercise rest target
   updatedAt: z.number(),
 })
 export type Exercise = z.infer<typeof ExerciseSchema>
@@ -160,6 +163,9 @@ export const SessionSchema = z.object({
   id: z.string(),
   dayId: z.number().int(), // RUN_DAY_ID (0) for runs — see the constant below
   date: z.string(), // local 'yyyy-MM-dd'
+  scheduledDate: z.string().optional(), // program slot this work fulfills; date remains when it happened
+  dayNameSnapshot: z.string().optional(), // keeps history truthful after template renames/deletes
+  focusSnapshot: z.string().optional(),
   startedAt: z.number(),
   finishedAt: z.number().nullable(),
   durationSec: z.number().nullable(),
@@ -182,6 +188,8 @@ export const WorkoutSetSchema = z.object({
   setIndex: z.number().int(),
   weight: z.string(), // token, may be 'Max'
   reps: z.string(),
+  targetWeight: z.string().optional(), // prescription at session start
+  targetReps: z.string().optional(),
   weightNum: z.number().nullable(), // numeric equivalent for volume; null for 'Max'/bodyweight
   repsNum: z.number().nullable(),
   completedAt: z.number().nullable(),

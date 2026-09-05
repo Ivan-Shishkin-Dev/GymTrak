@@ -40,6 +40,7 @@ const TABLE = 'gt_state'
 const ROW_ID = 1
 const PW_KEY = 'gt_edit_pw'
 const PUSH_DEBOUNCE_MS = 1200
+const RECOVERY_KEY = 'gt_recovery_snapshot'
 // Mirrors actions.RESUME_WINDOW_MS (kept local to avoid an actions↔sync import cycle).
 // A still-open workout younger than this must not be clobbered by a remote snapshot.
 const OPEN_SESSION_WINDOW_MS = 6 * 60 * 60 * 1000
@@ -59,6 +60,7 @@ export type SyncState = {
   editMode: boolean // true once the password is verified (Ivan)
   promptOpen: boolean // identity / password modal should be shown
   error: string | null
+  lastSyncedAt: number | null
 }
 
 function readPw(): string | null {
@@ -73,6 +75,7 @@ let status: SyncStatus = isSupabaseConfigured ? 'idle' : 'offline'
 let editMode = readPw() != null
 let promptOpen = false
 let lastError: string | null = null
+let lastSyncedAt: number | null = null
 
 const listeners = new Set<() => void>()
 // Cached snapshot so useSyncExternalStore sees a stable reference between changes.
@@ -82,6 +85,7 @@ let snapshot: SyncState = {
   editMode,
   promptOpen,
   error: lastError,
+  lastSyncedAt,
 }
 
 function emit() {
@@ -91,6 +95,7 @@ function emit() {
     editMode,
     promptOpen,
     error: lastError,
+    lastSyncedAt,
   }
   for (const l of listeners) l()
 }
@@ -145,6 +150,14 @@ async function serialize(): Promise<Snapshot> {
   return { days, exercises, sessions, sets, programWeeks, schema: 2 }
 }
 
+function saveRecoverySnapshot(data: Snapshot): void {
+  try {
+    localStorage.setItem(RECOVERY_KEY, JSON.stringify({ savedAt: Date.now(), data }))
+  } catch {
+    /* A large history may exceed localStorage; IndexedDB remains untouched. */
+  }
+}
+
 /** Replace the entire local DB with a snapshot. Mutes change hooks while it runs. */
 async function applySnapshot(s: Snapshot): Promise<void> {
   /*
@@ -160,6 +173,10 @@ async function applySnapshot(s: Snapshot): Promise<void> {
   // Read before muting the hooks: if this throws, `suspended` must not be left
   // stuck on — that would silently disable every future push.
   const keepWeeks = grafted ? await db.programWeeks.toArray() : s.programWeeks
+  const current = await serialize()
+  if (current.days.length || current.exercises.length || current.sessions.length) {
+    saveRecoverySnapshot(current)
+  }
   suspended = true
   try {
     await db.transaction(
@@ -197,7 +214,7 @@ async function applySnapshot(s: Snapshot): Promise<void> {
 async function localMaxUpdatedAt(): Promise<number> {
   const s = await serialize()
   let m = 0
-  for (const arr of [s.exercises, s.sessions, s.sets, s.programWeeks ?? []]) {
+  for (const arr of [s.days, s.exercises, s.sessions, s.sets, s.programWeeks ?? []]) {
     for (const r of arr) {
       if (typeof r.updatedAt === 'number' && r.updatedAt > m) m = r.updatedAt
     }
@@ -225,6 +242,22 @@ async function push(): Promise<void> {
   if (!supabase || !editMode || !pw) return
   setStatus('syncing')
   const data = await serialize()
+  saveRecoverySnapshot(data)
+  if (hasCloudRow && cursor > 0) {
+    const { data: remote, error: checkError } = await supabase
+      .from(TABLE)
+      .select('updated_at')
+      .eq('id', ROW_ID)
+      .maybeSingle()
+    if (checkError) {
+      setStatus('error', checkError.message)
+      return
+    }
+    if (remote && Number(remote.updated_at) > cursor) {
+      setStatus('error', 'Another device has newer changes. Reopen the app there or refresh before retrying; this device has a recovery copy.')
+      return
+    }
+  }
   const { data: ts, error } = await supabase.rpc('save_state', {
     p_password: pw,
     p_data: data,
@@ -244,6 +277,7 @@ async function push(): Promise<void> {
   cursor = Number(ts) || Date.now()
   hasCloudRow = true
   dirty = false
+  lastSyncedAt = Date.now()
   setStatus('synced')
 }
 
@@ -273,6 +307,7 @@ async function pull(): Promise<'pulled' | 'current' | 'empty'> {
     }
     await applySnapshot(data.data as Snapshot)
     cursor = serverUpdated
+    lastSyncedAt = Date.now()
     setStatus('synced')
     return 'pulled'
   }
@@ -342,6 +377,7 @@ async function reconcile(): Promise<void> {
     await applySnapshot(data.data as Snapshot)
     cursor = serverUpdated
     dirty = false
+    lastSyncedAt = Date.now()
     setStatus('synced')
   }
 }
@@ -431,6 +467,29 @@ export function openEditPrompt(): void {
 export function closeEditPrompt(): void {
   promptOpen = false
   emit()
+}
+
+/** Retry a transient pull/push failure from the visible sync error control. */
+export async function retrySync(): Promise<void> {
+  if (!supabase) return
+  if (dirty && editMode) await push()
+  else await pull()
+}
+
+/** Restore the most recent automatic local safety copy. */
+export async function restoreRecoverySnapshot(): Promise<boolean> {
+  try {
+    const raw = localStorage.getItem(RECOVERY_KEY)
+    if (!raw) return false
+    const parsed = JSON.parse(raw) as { data?: Snapshot }
+    if (!parsed.data) return false
+    await applySnapshot(parsed.data)
+    dirty = true
+    schedulePush()
+    return true
+  } catch {
+    return false
+  }
 }
 
 /* ── Public API ────────────────────────────────────────────────────────────── */

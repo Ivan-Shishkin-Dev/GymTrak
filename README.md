@@ -9,15 +9,19 @@ I tried a bunch of gym apps and none of them did quite what I wanted. Most paywa
 ## What it does
 
 - **It knows what today is.** Home shows the current week of my training program and what that day actually asks for — a lift, a run, both, or rest. The week is anchored to a start date, so it advances on its own. I can still tap any other day and start that instead.
+- **History closes the loop.** Completed lifts and runs are grouped by date with full set details, planned-versus-actual run metrics, recent training time, prior-performance context, and automatic best-load markers.
 - **Runs are first-class.** Easy and long runs are scheduled with a duration and a heart-rate zone, and logged on their own screen: a clock against the prescribed time, with average HR recorded at the end. Going over the hard cap flags the session; it never blocks saving it.
 - **Minutes, shown in miles.** Runs are prescribed in minutes — that's the point of a Zone 2 block, since the same heart rate buys more distance as fitness comes in. Every duration is also shown as the distance it works out to at my measured Zone 2 pace (2.5 mi in 30 min → 12:00 /mi). Logging the miles I actually covered shows the pace I really held, so the estimate can be corrected rather than assumed.
 - **Log it set by set.** Each set comes prefilled with what I did last time — tap to mark it done, or edit the weight/reps to what I actually hit.
-- **Loads carry forward.** Finishing a workout writes each lift's sets back to the Library, so next time prefills from reality instead of a guess. Deload weeks are the exception: they run a set short on purpose, and that shortfall is deliberately *not* carried back, so the plan doesn't quietly shrink.
-- **The plan is editable.** The Library holds the split: add, rename, and reorder days; add, edit, reorder, and remove exercises; set per-set loads (top set plus back-offs). Each exercise is independent — same-named lifts on other days progress on their own.
+- **Focused by default.** Live lifting shows the current exercise first, provides one-tap load adjustments, and keeps the full workout one tap away in Overview.
+- **Loads carry forward.** Finishing a workout writes completed performance back to the Plan, so next time prefills from reality instead of a guess. Unfinished targets and deliberate deload volume are preserved, so ending early never quietly shrinks the next workout.
+- **The plan is editable.** Plan holds the split: add, rename, and reorder days; add, edit, reorder, and remove exercises; set per-set loads (top set plus back-offs). Each exercise is independent — same-named lifts on other days progress on their own.
+- **The schedule is editable too.** Current and future weeks can change lift/run/rest assignments, run duration and heart-rate targets, deloads, and strides; past weeks stay locked, and any week can seed the next one.
 - **Different kinds of load.** Free weight, machine stack/level, plate count, bodyweight (added or assisted), or free text. Each exercise pins how its weight is written so the notation never drifts set to set.
 - **Public to read, password to edit.** The whole log is open to view. Editing asks for a password; enter it once and you're in edit mode for the session. Everything syncs to the cloud, so it's the same on my phone and laptop.
 - **Old plans are archived, not deleted.** Consolidating the split hides the previous days rather than removing them, so every past workout still resolves and rolling back is one tap.
 - **Works offline.** It's a PWA — loads with no signal after the first visit, installs to the home screen, runs fullscreen.
+- **Gym-safe timers and recovery.** Rest survives reloads, signals time with vibration/sound, supports per-exercise targets, and keeps the screen awake during an open session. Finishing has a short Undo, and cloud replacement creates a local recovery copy.
 
 ## How access control works
 
@@ -55,14 +59,14 @@ Cloud sync is optional locally. Copy `.env.example` to `.env` and fill in your S
 
 On first launch it seeds the split (the four lift days and their exercises) plus the eight-week running base phase, anchored to the upcoming Monday, into IndexedDB. After that your data lives locally and, if configured, syncs to Supabase last-write-wins by timestamp.
 
-The seed only runs on an empty database, so it can't reach an install that already has data. There the same split and program are installed from **Library → Program → Edit → Install base phase**, which is idempotent: re-running it never duplicates a week and never resets a load you've since progressed. Archiving the previous six-day split and removing its `Cardio` line item are separate, confirmed actions in the same card; archived days stay in the database so every past workout still resolves.
+The seed only runs on an empty database, so it can't reach an install that already has data. There the same split and program are installed from **Plan → Edit → Program → Install base phase**, which is idempotent: re-running it never duplicates a week and never resets a load you've since progressed. Archiving the previous six-day split and removing its `Cardio` line item are separate, confirmed actions in the same card; archived days stay in the database so every past workout still resolves.
 
 ## Project structure
 
 ```
 src/
   main.tsx        registers the service worker, starts sync, renders
-  App.tsx         routes: / and /library (tabbed) + /log and /run (full-screen)
+  App.tsx         routes: /, /history, /library (tabbed) + /log and /run (full-screen)
   index.css       Tailwind + design tokens + base component styles
   db/
     types.ts      Zod schemas → inferred record types
@@ -80,7 +84,7 @@ src/
     supabase.ts   the anon client (no auth)
     sync.ts       snapshot serialize/apply, edit mode, push/pull
   components/      AppLayout, TabBar, WeekList, IdentityGate, SyncBar, LoadEditor, …
-  screens/        Home, Library, Log, Run
+  screens/        Home, History, Library, Log, Run
 scripts/shot.mjs  screenshot loop (headless Chrome at a phone viewport)
 ```
 

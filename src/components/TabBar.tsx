@@ -1,38 +1,33 @@
 import { NavLink } from 'react-router-dom'
-import { HomeIcon, LibraryIcon } from './icons'
+import { HistoryIcon, HomeIcon, LibraryIcon } from './icons'
 
 const TABS = [
-  { to: '/', Icon: HomeIcon, label: 'Home' },
-  { to: '/library', Icon: LibraryIcon, label: 'Library' },
+  { to: '/', Icon: HomeIcon, label: 'Today' },
+  { to: '/history', Icon: HistoryIcon, label: 'History' },
+  { to: '/library', Icon: LibraryIcon, label: 'Plan' },
 ]
 
-/** Docked tab bar — a solid band holding the blurred pill nav. It occupies real
- *  layout space at the bottom (not a floating overlay), so screen content sits
- *  above it and can never hide behind it. Shown on every screen except /log.
- *  Each tab is an icon over its name; the active one is volt, the same "you are
- *  here" the week list uses. */
+/** Docked tab bar — a compact, flat band that occupies real layout space, so
+ *  screen content can never hide behind it. Each destination is named for the
+ *  question it answers: today's work or the broader plan. */
 export function TabBar() {
   return (
     <div
       style={{
         flexShrink: 0,
-        background: 'var(--color-bg)',
-        padding: `8px 24px calc(12px + env(safe-area-inset-bottom))`,
+        background: 'rgba(11,11,12,0.94)',
+        borderTop: '1px solid var(--color-card-border)',
+        backdropFilter: 'blur(20px)',
+        WebkitBackdropFilter: 'blur(20px)',
+        padding: `4px 20px calc(6px + env(safe-area-inset-bottom))`,
       }}
     >
       <nav
-        className="card"
         style={{
-          height: 64,
-          borderRadius: 32,
-          background: 'rgba(19,19,22,0.92)',
-          borderColor: 'var(--color-pill-border)',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
+          height: 54,
           display: 'flex',
           alignItems: 'stretch',
-          padding: 4,
-          gap: 4,
+          gap: 8,
         }}
       >
         {TABS.map(({ to, Icon, label }) => (
@@ -44,22 +39,22 @@ export function TabBar() {
             className="tap"
             style={({ isActive }) => ({
               flex: 1,
-              color: isActive ? 'var(--color-volt)' : 'var(--color-idle)',
-              background: isActive ? 'var(--color-volt-tint)' : 'transparent',
-              borderRadius: 28,
+              color: isActive ? 'var(--color-text)' : 'var(--color-idle)',
+              background: 'transparent',
+              borderRadius: 10,
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
               gap: 3,
               textDecoration: 'none',
-              transition: 'color 0.15s ease, background 0.15s ease',
+              transition: 'color 0.15s ease',
             })}
           >
             <Icon />
             <span
               style={{
-                fontSize: 10.5,
+                fontSize: 11,
                 fontWeight: 640,
                 letterSpacing: '0.02em',
                 lineHeight: 1,

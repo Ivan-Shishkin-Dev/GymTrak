@@ -4,7 +4,6 @@ import {
   useSyncState,
   enterEditMode,
   closeEditPrompt,
-  openEditPrompt,
 } from '@/lib/sync'
 
 // The edit code is a fixed-length numeric passcode (the bcrypt-hashed value lives
@@ -12,9 +11,9 @@ import {
 const CODE_LENGTH = 4
 
 /**
- * Front door to the log. On every fresh load it asks "Are you Ivan?" — anyone can
- * step past it and keep reading (the whole log is public), but turning on editing
- * needs the key (password). Mounted once at the app root, over the blurred app.
+ * Unlock dialog for the editor. Public visitors enter directly in read-only mode;
+ * tapping Unlock opens this gate, and turning on editing needs the key (password).
+ * Mounted once at the app root, over the blurred app.
  *
  * The lock-dial ring is the through-line: it shows the log is closed to edits, and
  * springs open the instant the right key lands — the one moment Ivan sees on the
@@ -28,14 +27,7 @@ export function IdentityGate() {
   const [err, setErr] = useState<string | null>(null)
   // Holds the modal open for the unlock flourish after edit mode is already on.
   const [unlocked, setUnlocked] = useState(false)
-
-  // Ask once on first load when not already unlocked (and sync is configured).
-  const asked = useRef(false)
-  useEffect(() => {
-    if (asked.current) return
-    asked.current = true
-    if (state.configured && !state.editMode) openEditPrompt()
-  }, [state.configured, state.editMode])
+  const dialogRef = useRef<HTMLDivElement>(null)
 
   // Reset to the question whenever the modal (re)opens; focus the field on step 2.
   useEffect(() => {
@@ -97,6 +89,26 @@ export function IdentityGate() {
     return () => window.removeEventListener('keydown', onKey)
   }, [visible, unlocked, step])
 
+  // Keep keyboard focus inside the modal while it is open.
+  useEffect(() => {
+    if (!visible || unlocked) return
+    const dialog = dialogRef.current
+    if (!dialog) return
+    const focusable = () => [...dialog.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), [tabindex="0"]')]
+    focusable()[0]?.focus()
+    const trap = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab') return
+      const items = focusable()
+      if (!items.length) return
+      const current = items.indexOf(document.activeElement as HTMLElement)
+      const next = event.shiftKey ? (current <= 0 ? items.length - 1 : current - 1) : (current >= items.length - 1 ? 0 : current + 1)
+      event.preventDefault()
+      items[next].focus()
+    }
+    dialog.addEventListener('keydown', trap)
+    return () => dialog.removeEventListener('keydown', trap)
+  }, [visible, unlocked, step])
+
   // Physical keyboard on desktop: digits fill the code, Backspace deletes one.
   useEffect(() => {
     if (!visible || unlocked || step !== 'password') return
@@ -134,6 +146,7 @@ export function IdentityGate() {
       }}
     >
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="gate-title"

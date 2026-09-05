@@ -136,18 +136,25 @@ try {
   }
 
   for (const path of paths) {
-    if (path === '/log') {
+    if (path === '/library-edit') {
+      await cdp.send('Page.navigate', { url: `${BASE}/library` })
+      await cdp.once('Page.loadEventFired')
+      await sleep(WAIT)
+      await evaluate(`[...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'Edit')?.click()`)
+      await sleep(700)
+      await capture(path)
+    } else if (path === '/log') {
       // /log needs an open session: start one from Home, then tick a set so the
       // rest timer + Finish button are visible.
       await cdp.send('Page.navigate', { url: `${BASE}/` })
       await cdp.once('Page.loadEventFired')
       await sleep(WAIT)
       await evaluate(
-        `document.querySelector('[aria-label="Start workout"]')?.click()`,
+        `document.querySelector('[aria-label^="Start "]')?.click()`,
       )
       await sleep(1200)
       await evaluate(
-        `[...document.querySelectorAll('div')].find(d => d.textContent.trim().startsWith('Set 1') && d.children.length >= 4)?.click()`,
+        `[...document.querySelectorAll('div')].find(d => d.textContent.trim().startsWith('SET 1') && d.children.length >= 4)?.click()`,
       )
       await sleep(700)
       await capture(path)

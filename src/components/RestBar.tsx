@@ -1,4 +1,4 @@
-import { useEffect, useReducer } from 'react'
+import { useEffect, useReducer, useRef } from 'react'
 import type { ReactNode } from 'react'
 import { Timer } from 'lucide-react'
 import { ProgressRing } from './ProgressRing'
@@ -38,6 +38,7 @@ export function RestBar({
 } = {}) {
   const state = useRestTimer()
   const [, tick] = useReducer((n) => n + 1, 0)
+  const alerted = useRef(false)
 
   // Re-render ~4×/sec while resting so the ring + clock stay live. Timestamp math
   // (not a counter) keeps a throttled background tab correct. Re-arm when the
@@ -50,6 +51,34 @@ export function RestBar({
     }, 250)
     return () => clearInterval(id)
   }, [state.active, state.startedAt, state.targetSec])
+
+  useEffect(() => {
+    if (!state.active) {
+      alerted.current = false
+      return
+    }
+    const id = setInterval(() => {
+      if (remainingSec(state, Date.now()) > 0 || alerted.current) return
+      alerted.current = true
+      if ('vibrate' in navigator) navigator.vibrate([180, 90, 180])
+      try {
+        const AudioContextCtor = window.AudioContext
+        const ctx = new AudioContextCtor()
+        const oscillator = ctx.createOscillator()
+        const gain = ctx.createGain()
+        oscillator.frequency.value = 740
+        gain.gain.setValueAtTime(0.0001, ctx.currentTime)
+        gain.gain.exponentialRampToValueAtTime(0.12, ctx.currentTime + 0.02)
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.35)
+        oscillator.connect(gain).connect(ctx.destination)
+        oscillator.start()
+        oscillator.stop(ctx.currentTime + 0.36)
+      } catch {
+        /* sound can be blocked; visual and vibration signals remain */
+      }
+    }, 250)
+    return () => clearInterval(id)
+  }, [state])
 
   const padBottom = bottomInset
     ? 'calc(12px + env(safe-area-inset-bottom))'
@@ -71,7 +100,7 @@ export function RestBar({
       >
         <button
           className="tap press"
-          onClick={startRest}
+          onClick={() => startRest()}
           style={{
             width: '100%',
             height: 42,
@@ -139,6 +168,8 @@ export function RestBar({
           </div>
           <div
             className="display tabular-nums"
+            role="timer"
+            aria-live={overrun ? 'assertive' : 'off'}
             style={{
               fontSize: 27,
               fontWeight: 700,

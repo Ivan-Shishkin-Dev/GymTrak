@@ -188,7 +188,7 @@ export function ProgramCard({
   }
 
   return (
-    <div className="card" style={{ borderRadius: 22, overflow: 'hidden', marginBottom: 12 }}>
+    <div className="card" style={{ borderRadius: 16, overflow: 'hidden', marginBottom: 10 }}>
       <button
         onClick={() => setOpen((v) => !v)}
         className="tap"
@@ -372,4 +372,3 @@ export function ProgramCard({
     </div>
   )
 }
-

@@ -2,6 +2,7 @@ import { Outlet } from 'react-router-dom'
 import { TabBar } from './TabBar'
 import { ResumeBanner } from './ResumeBanner'
 import { RestBar } from './RestBar'
+import { CompletionToast } from './CompletionToast'
 
 /** Layout for the tabbed screens: content scrolls in a region docked ABOVE the
  *  tab bar, so the bar never covers content. A resume banner docks just above the
@@ -16,6 +17,7 @@ export function AppLayout() {
       <ResumeBanner />
       <RestBar />
       <TabBar />
+      <CompletionToast />
     </div>
   )
 }

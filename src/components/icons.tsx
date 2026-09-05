@@ -6,6 +6,7 @@ import {
   Plus,
   ChevronDown as LucideChevronDown,
   ChevronLeft,
+  History,
 } from 'lucide-react'
 
 /**
@@ -23,6 +24,10 @@ export function HomeIcon() {
 
 export function LibraryIcon() {
   return <Dumbbell size={21} strokeWidth={2} />
+}
+
+export function HistoryIcon() {
+  return <History size={21} strokeWidth={2} />
 }
 
 /* ── Inline affordances ──────────────────────────────────────────────────── */

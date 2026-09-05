@@ -16,6 +16,7 @@ import { useSyncExternalStore } from 'react'
  */
 
 const DEFAULT_KEY = 'gt_rest_default'
+const ACTIVE_KEY = 'gt_rest_active'
 const FALLBACK_SEC = 180 // 3 min
 const MIN_SEC = 15
 const MAX_SEC = 600
@@ -42,16 +43,39 @@ function readDefault(): number {
 }
 
 // One cached object so useSyncExternalStore sees a stable reference between emits.
-let state: RestState = {
-  active: false,
-  startedAt: 0,
-  targetSec: readDefault(),
-  defaultSec: readDefault(),
+function readActive(): Pick<RestState, 'active' | 'startedAt' | 'targetSec'> {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(ACTIVE_KEY) ?? 'null') as {
+      startedAt?: number
+      targetSec?: number
+    } | null
+    if (!parsed?.startedAt || !parsed.targetSec) return { active: false, startedAt: 0, targetSec: readDefault() }
+    const age = Date.now() - parsed.startedAt
+    if (age < 0 || age > (parsed.targetSec + 300) * 1000) {
+      localStorage.removeItem(ACTIVE_KEY)
+      return { active: false, startedAt: 0, targetSec: readDefault() }
+    }
+    return { active: true, startedAt: parsed.startedAt, targetSec: parsed.targetSec }
+  } catch {
+    return { active: false, startedAt: 0, targetSec: readDefault() }
+  }
 }
+
+const restored = readActive()
+let state: RestState = { ...restored, defaultSec: readDefault() }
 
 const listeners = new Set<() => void>()
 function emit(next: Partial<RestState>): void {
   state = { ...state, ...next }
+  try {
+    if (state.active) {
+      localStorage.setItem(ACTIVE_KEY, JSON.stringify({ startedAt: state.startedAt, targetSec: state.targetSec }))
+    } else {
+      localStorage.removeItem(ACTIVE_KEY)
+    }
+  } catch {
+    /* storage may be unavailable; the live timer still works */
+  }
   for (const l of listeners) l()
 }
 
@@ -74,8 +98,8 @@ export function remainingSec(s: RestState, now: number): number {
 }
 
 /** Start (or restart) a rest at the current default. Called when a set is ticked done. */
-export function startRest(): void {
-  emit({ active: true, startedAt: Date.now(), targetSec: state.defaultSec })
+export function startRest(seconds?: number): void {
+  emit({ active: true, startedAt: Date.now(), targetSec: clampSec(seconds ?? state.defaultSec) })
 }
 
 /** Nudge THIS rest only (±15s); not persisted. */

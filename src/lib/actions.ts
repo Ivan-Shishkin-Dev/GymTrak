@@ -1,4 +1,5 @@
 import { db, uid } from '@/db/db'
+import { addDays, parseISO } from 'date-fns'
 import { dateKey, parseLoad, parseReps, getSetRows } from './format'
 import { isEditMode } from './sync'
 import { dayRank, byDayOrder } from './rotation'
@@ -54,12 +55,13 @@ async function claimOpenSession(
 export async function startSession(
   day: Day,
   exercises: Exercise[],
-  opts?: { deload?: boolean; weekNumber?: number },
+  opts?: { deload?: boolean; weekNumber?: number; scheduledDate?: string },
 ): Promise<string> {
   requireEdit()
   const now = Date.now()
+  const scheduledDate = opts?.scheduledDate ?? dateKey(new Date(now))
   const resumed = await claimOpenSession(
-    (s) => s.dayId === day.id && now - s.startedAt < RESUME_WINDOW_MS,
+    (s) => s.dayId === day.id && (s.scheduledDate ?? s.date) === scheduledDate && now - s.startedAt < RESUME_WINDOW_MS,
   )
   if (resumed) return resumed
 
@@ -82,6 +84,8 @@ export async function startSession(
         setIndex: i,
         weight: row.weight,
         reps: row.reps,
+        targetWeight: row.weight,
+        targetReps: row.reps,
         weightNum: parseLoad(row.weight),
         repsNum: parseReps(row.reps),
         completedAt: null,
@@ -95,6 +99,9 @@ export async function startSession(
       id: sessionId,
       dayId: day.id,
       date: dateKey(new Date()),
+      ...(opts?.scheduledDate ? { scheduledDate: opts.scheduledDate } : {}),
+      dayNameSnapshot: day.name,
+      focusSnapshot: day.focus,
       startedAt: now,
       finishedAt: null,
       durationSec: null,
@@ -120,14 +127,16 @@ export async function startSession(
 export async function startRun(
   week: ProgramWeek,
   slot: ProgramSlot,
+  scheduledDate?: string,
 ): Promise<string | null> {
   requireEdit()
   if (!slot.run) return null
   const now = Date.now()
   const p: RunPrescription = slot.run
+  const plannedDate = scheduledDate ?? dateKey(new Date(now))
 
   const resumed = await claimOpenSession(
-    (s) => s.dayId === RUN_DAY_ID && now - s.startedAt < RESUME_WINDOW_MS,
+    (s) => s.dayId === RUN_DAY_ID && (s.scheduledDate ?? s.date) === plannedDate && now - s.startedAt < RESUME_WINDOW_MS,
   )
   if (resumed) return resumed
 
@@ -136,6 +145,9 @@ export async function startRun(
     id: sessionId,
     dayId: RUN_DAY_ID,
     date: dateKey(new Date()),
+    ...(scheduledDate ? { scheduledDate } : {}),
+    dayNameSnapshot: p.label,
+    focusSnapshot: 'Zone 2',
     startedAt: now,
     finishedAt: null,
     durationSec: null,
@@ -220,7 +232,7 @@ export async function updateDay(
   patch: Partial<Pick<Day, 'name' | 'focus'>>,
 ): Promise<void> {
   requireEdit()
-  await db.days.update(id, patch)
+  await db.days.update(id, { ...patch, updatedAt: Date.now() })
 }
 
 /**
@@ -230,7 +242,7 @@ export async function updateDay(
  */
 export async function archiveDay(id: number, archived: boolean): Promise<void> {
   requireEdit()
-  await db.days.update(id, { archived })
+  await db.days.update(id, { archived, updatedAt: Date.now() })
 }
 
 /** Append a new rotation day at the end of the cycle (next free id). Returns its id. */
@@ -239,7 +251,7 @@ export async function addDay(): Promise<number> {
   const existing = await db.days.toArray()
   const id = existing.reduce((m, d) => Math.max(m, d.id), 0) + 1
   const order = existing.reduce((m, d) => Math.max(m, dayRank(d)), 0) + 1
-  await db.days.add({ id, order, name: 'New day', focus: '' })
+  await db.days.add({ id, order, name: 'New day', focus: '', updatedAt: Date.now() })
   return id
 }
 
@@ -257,7 +269,9 @@ export async function moveDay(id: number, dir: -1 | 1): Promise<void> {
   ;[days[idx], days[target]] = [days[target], days[idx]]
   await db.transaction('rw', db.days, async () => {
     for (let i = 0; i < days.length; i++) {
-      if (days[i].order !== i + 1) await db.days.update(days[i].id, { order: i + 1 })
+      if (days[i].order !== i + 1) {
+        await db.days.update(days[i].id, { order: i + 1, updatedAt: Date.now() })
+      }
     }
   })
 }
@@ -280,7 +294,7 @@ export async function deleteDay(id: number): Promise<void> {
 export async function updateExercise(
   id: string,
   patch: Partial<
-    Pick<Exercise, 'name' | 'sets' | 'weight' | 'reps' | 'setRows' | 'loadType'>
+    Pick<Exercise, 'name' | 'sets' | 'weight' | 'reps' | 'setRows' | 'loadType' | 'loadIncrement' | 'restSeconds'>
   >,
 ): Promise<void> {
   requireEdit()
@@ -367,6 +381,8 @@ export async function addSetToSession(
     setIndex: (last?.setIndex ?? -1) + 1,
     weight: last?.weight ?? '',
     reps: last?.reps ?? '× 6',
+    targetWeight: last?.weight ?? '',
+    targetReps: last?.reps ?? '× 6',
     weightNum: last ? parseLoad(last.weight) : null,
     repsNum: last ? parseReps(last.reps) : null,
     completedAt: null,
@@ -408,6 +424,8 @@ export async function addExerciseToSession(
     setIndex: i,
     weight: row.weight,
     reps: row.reps,
+    targetWeight: row.weight,
+    targetReps: row.reps,
     weightNum: parseLoad(row.weight),
     repsNum: parseReps(row.reps),
     completedAt: null,
@@ -436,7 +454,8 @@ export async function removeExerciseFromSession(
 }
 
 /** Drop an abandoned (never-finished) session and its prefilled sets. */
-async function discardSession(sessionId: string): Promise<void> {
+export async function discardSession(sessionId: string): Promise<void> {
+  requireEdit()
   await db.transaction('rw', db.sessions, db.sets, async () => {
     const ids = (
       await db.sets.where('sessionId').equals(sessionId).toArray()
@@ -471,15 +490,18 @@ export async function finishSession(sessionId: string): Promise<void> {
   }
 
   await db.transaction('rw', db.sessions, db.sets, db.exercises, async () => {
-    // drop sets that weren't completed
-    const undone = sets.filter((s) => s.completedAt == null).map((s) => s.id)
-    if (undone.length) await db.sets.bulkDelete(undone)
+    // Keep incomplete rows so a just-finished workout can be reopened without
+    // reconstructing its plan. History only renders completed rows.
 
-    // carry each exercise's per-set loads back to its Library plan (no-op if deleted)
+    // Carry completed work back to the Library plan (no-op if deleted).
     for (const [exerciseId, exSets] of byExercise) {
-      const setRows = [...exSets]
-        .sort((a, b) => a.setIndex - b.setIndex)
-        .map((s) => ({ weight: s.weight, reps: s.reps }))
+      const orderedRows = [...exSets].sort((a, b) => a.setIndex - b.setIndex)
+      // Completed rows carry their performed values. Unfinished rows retain the
+      // start-of-session target, so ending early never promotes an accidental
+      // edit or silently shrinks the next prescription.
+      const setRows = orderedRows.map((s) => s.completedAt != null
+        ? { weight: s.weight, reps: s.reps }
+        : { weight: s.targetWeight ?? s.weight, reps: s.targetReps ?? s.reps })
       if (!setRows.length) continue
       const ex = await db.exercises.get(exerciseId)
       // A deload session deliberately runs a set short. Carry back the loads you
@@ -507,4 +529,50 @@ export async function finishSession(sessionId: string): Promise<void> {
       updatedAt: now,
     })
   })
+}
+
+/** Reopen a just-finished session for the short post-finish undo action. */
+export async function reopenSession(sessionId: string): Promise<Session | null> {
+  requireEdit()
+  const session = await db.sessions.get(sessionId)
+  if (!session || session.deleted) return null
+  await db.sessions.update(sessionId, {
+    finishedAt: null,
+    durationSec: null,
+    updatedAt: Date.now(),
+  })
+  return { ...session, finishedAt: null, durationSec: null }
+}
+
+/** Soft-delete a completed session while retaining a recovery path in synced data. */
+export async function deleteSession(sessionId: string): Promise<void> {
+  requireEdit()
+  await db.sessions.update(sessionId, { deleted: true, updatedAt: Date.now() })
+}
+
+/** Save edits to a current or future program week. */
+export async function updateProgramWeek(week: ProgramWeek): Promise<void> {
+  requireEdit()
+  await db.programWeeks.put({ ...week, updatedAt: Date.now() })
+}
+
+/** Append a new week after the phase, using another week as its template. */
+export async function duplicateProgramWeek(sourceId: number): Promise<number | null> {
+  requireEdit()
+  const weeks = (await db.programWeeks.toArray()).sort((a, b) => a.id - b.id)
+  const source = weeks.find((w) => w.id === sourceId)
+  const last = weeks[weeks.length - 1]
+  if (!source || !last) return null
+  const id = last.id + 1
+  await db.programWeeks.add({
+    ...source,
+    id,
+    startDate: dateKey(addDays(parseISO(last.startDate), 7)),
+    slots: source.slots.map((slot) => ({
+      ...slot,
+      run: slot.run ? { ...slot.run } : null,
+    })),
+    updatedAt: Date.now(),
+  })
+  return id
 }

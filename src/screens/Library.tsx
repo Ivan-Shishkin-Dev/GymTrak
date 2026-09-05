@@ -22,11 +22,14 @@ import { LoadEditor, RepsField } from '@/components/LoadEditor'
 import { MoveButtons } from '@/components/MoveButtons'
 import { PencilGlyph, PlusGlyph, TrashGlyph, ChevronDown } from '@/components/icons'
 import { ProgramCard } from '@/components/ProgramCard'
+import { ScheduleEditor } from '@/components/ScheduleEditor'
+import { weekFor } from '@/lib/program'
+import { RecoveryControl } from '@/components/RecoveryControl'
 
 /* ── local state shapes ──────────────────────────────────────────────────── */
 
 type DayDraft = { name: string; focus: string }
-type ExDraft = { name: string; loadType: LoadType; rows: SetRow[] }
+type ExDraft = { name: string; loadType: LoadType; rows: SetRow[]; loadIncrement: number; restSeconds: number }
 
 /** Load-type chips shown in the exercise editor. */
 const LOAD_TYPES: { key: LoadType; label: string }[] = [
@@ -39,7 +42,13 @@ const LOAD_TYPES: { key: LoadType; label: string }[] = [
 
 function emptyExDraft(ex: Exercise): ExDraft {
   const loadType = ex.loadType ?? inferLoadType(ex.weight)
-  return { name: ex.name, loadType, rows: getSetRows(ex).map((r) => ({ ...r })) }
+  return {
+    name: ex.name,
+    loadType,
+    rows: getSetRows(ex).map((r) => ({ ...r })),
+    loadIncrement: ex.loadIncrement ?? (loadType === 'plates' || loadType === 'machine' ? 1 : 5),
+    restSeconds: ex.restSeconds ?? 180,
+  }
 }
 
 /* ── tiny shared input style ─────────────────────────────────────────────── */
@@ -163,6 +172,8 @@ function DayCard({
       sets: safe.length,
       weight: safe[0].weight,
       reps: safe[0].reps,
+      loadIncrement: exDraft.loadIncrement,
+      restSeconds: exDraft.restSeconds,
     })
     setEditingExId(null)
     setExDraft(null)
@@ -223,7 +234,7 @@ function DayCard({
   return (
     <div
       className="card"
-      style={{ borderRadius: 22, padding: 0, marginBottom: 10 }}
+      style={{ borderRadius: 16, padding: 0, marginBottom: 8 }}
     >
       {/* ── day header ─────────────────────────────────────────────────── */}
       <div
@@ -429,6 +440,16 @@ function DayCard({
                         )
                       })}
                     </div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    <label style={{ fontSize: 10.5, color: 'var(--color-faint)' }}>
+                      Load step
+                      <input type="number" inputMode="decimal" min="0.5" step="0.5" value={exDraft.loadIncrement} onChange={(e) => setExDraft((d) => d && ({ ...d, loadIncrement: Math.max(0.5, Number(e.target.value)) }))} style={{ ...inputStyle, marginTop: 4 }} />
+                    </label>
+                    <label style={{ fontSize: 10.5, color: 'var(--color-faint)' }}>
+                      Rest seconds
+                      <input type="number" inputMode="numeric" min="15" step="15" value={exDraft.restSeconds} onChange={(e) => setExDraft((d) => d && ({ ...d, restSeconds: Math.max(15, Number(e.target.value)) }))} style={{ ...inputStyle, marginTop: 4 }} />
+                    </label>
                   </div>
                   {/* Per-set weight + reps */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -711,7 +732,8 @@ export function Library() {
     [],
   )
   const scheduledOn = new Map<number, string>()
-  for (const slot of weeks[0]?.slots ?? []) {
+  const displayWeek = weekFor(weeks, new Date()) ?? weeks.find((week) => week.startDate > new Date().toISOString().slice(0, 10)) ?? weeks.at(-1)
+  for (const slot of displayWeek?.slots ?? []) {
     if (slot.liftDayId != null) scheduledOn.set(slot.liftDayId, slot.dow.toUpperCase())
   }
   // Accordion: at most one day expanded; null = all collapsed (the default).
@@ -724,13 +746,18 @@ export function Library() {
     <div className="screen">
       <div
         style={{
-          padding: '6px 0 12px',
+          padding: '2px 0 10px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
         }}
       >
-        <div className="screen-title" style={{ padding: 0 }}>Library</div>
+        <div>
+          <div className="screen-title" style={{ padding: 0 }}>Plan</div>
+          <div style={{ marginTop: 5, fontSize: 13, color: 'var(--color-sub)' }}>
+            Schedule and exercises
+          </div>
+        </div>
         {editMode && (
           <button
             onClick={() => setEditing((v) => !v)}
@@ -752,6 +779,8 @@ export function Library() {
       </div>
 
       <ProgramCard editMode={editMode} editing={editMode && editing} />
+
+      {editMode && editing && <ScheduleEditor weeks={weeks} days={days} />}
 
       {days.map((day, i) => {
         const rows = exercises
@@ -799,6 +828,8 @@ export function Library() {
           Add day
         </button>
       )}
+
+      {editMode && editing && <RecoveryControl />}
 
       {editMode && editing && archivedDays.length > 0 && (
         <div style={{ marginTop: 18 }}>

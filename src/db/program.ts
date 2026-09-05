@@ -100,6 +100,7 @@ export async function installBasePhase(opts: {
             name: t.name,
             focus: t.focus,
             slug: t.slug,
+            updatedAt: now,
           }
           await db.days.add(day)
           ids[t.slug] = day.id
@@ -131,7 +132,7 @@ export async function installBasePhase(opts: {
       if (opts.archiveLegacy) {
         for (const d of existing) {
           if (!d.slug && !d.archived) {
-            await db.days.update(d.id, { archived: true })
+            await db.days.update(d.id, { archived: true, updatedAt: now })
             report.daysArchived++
           }
         }

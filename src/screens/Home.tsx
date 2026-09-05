@@ -36,13 +36,12 @@ import type { Dow, Exercise } from '@/db/types'
  * that isn't the answer or the button is competing with them.
  */
 
-/** Volt-tinted card surface for the day you're being asked about. */
+/** Flat card surface for the day you're being asked about. */
 const HERO_BACKGROUND =
-  'radial-gradient(130% 90% at 15% -10%, rgba(205, 244, 99, 0.13), transparent 55%), var(--color-card)'
-/* A volt hairline along the top edge — the card is lit by the accent, not the
-   room — plus the soft halo that lifts it off the page. */
+  'var(--color-card)'
+/* A single accent hairline distinguishes the current selection without a glow. */
 const HERO_SHADOW =
-  '0 0 60px -24px rgba(205, 244, 99, 0.22), inset 0 1px 0 rgba(205, 244, 99, 0.28)'
+  'inset 0 2px 0 rgba(210, 245, 111, 0.58)'
 
 /** Warning accent — shared with the rest timer's overrun state. */
 const AMBER = '#f5b945'
@@ -55,7 +54,7 @@ const eyebrowStyle: React.CSSProperties = {
 
 const headlineStyle: React.CSSProperties = {
   fontFamily: 'var(--font-display)',
-  fontSize: 40,
+  fontSize: 36,
   fontWeight: 700,
   letterSpacing: '-0.01em',
   lineHeight: 1,
@@ -66,7 +65,7 @@ function HeroSkeleton() {
   return (
     <div
       className="card"
-      style={{ borderRadius: 30, padding: 24, display: 'flex', flexDirection: 'column', gap: 14 }}
+      style={{ borderRadius: 20, padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}
     >
       <div className="skeleton" style={{ width: 110, height: 11, borderRadius: 6 }} />
       <div className="skeleton" style={{ width: '52%', height: 30, borderRadius: 8 }} />
@@ -79,7 +78,7 @@ function HeroSkeleton() {
 
 const voltButton: React.CSSProperties = {
   height: 52,
-  borderRadius: 26,
+  borderRadius: 14,
   background: 'var(--color-volt)',
   color: 'var(--color-on-volt)',
   display: 'flex',
@@ -100,7 +99,7 @@ const quietButton: React.CSSProperties = {
   border: '1px solid var(--color-pill-border)',
   fontSize: 15,
   height: 48,
-  borderRadius: 24,
+  borderRadius: 14,
 }
 
 export function Home() {
@@ -155,14 +154,14 @@ export function Home() {
   )
 
   const doneDates = new Set(
-    sessionList.filter((s) => s.finishedAt != null && !s.deleted).map((s) => s.date),
+    sessionList.filter((s) => s.finishedAt != null && !s.deleted).map((s) => s.scheduledDate ?? s.date),
   )
 
   // What's already been done on the day we're looking at, so a finished day reads
   // as finished rather than offering the same button it did this morning.
   const selDate = week ? slotDate(week, dow) : todayKey
   const finishedOn = sessionList.filter(
-    (s) => s.date === selDate && s.finishedAt != null && !s.deleted,
+    (s) => (s.scheduledDate ?? s.date) === selDate && s.finishedAt != null && !s.deleted,
   )
   const doneRun = finishedOn.find(isRun)
   const doneLift = liftDay
@@ -192,7 +191,7 @@ export function Home() {
 
   function attempt(kind: 'lift' | 'run') {
     const wantsDayId = kind === 'run' ? RUN_DAY_ID : liftDay?.id
-    if (openSession && openSession.dayId !== wantsDayId) {
+    if (openSession && (openSession.dayId !== wantsDayId || (openSession.scheduledDate ?? openSession.date) !== selDate)) {
       setPending(kind)
       return
     }
@@ -203,7 +202,7 @@ export function Home() {
     setPending(null)
     if (kind === 'run') {
       if (!week || !slot?.run) return
-      const id = await startRun(week, slot)
+      const id = await startRun(week, slot, selDate)
       if (id) navigate('/run')
       return
     }
@@ -212,6 +211,7 @@ export function Home() {
     await startSession(liftDay, ex, {
       deload: week?.isDeload,
       weekNumber: week?.id,
+      scheduledDate: selDate,
     })
     navigate('/log')
   }
@@ -236,12 +236,23 @@ export function Home() {
         `${r.actualMi != null ? ` · ${r.actualMi} mi` : ''}`,
     )
   }
+  const doingAnotherDay = selDate !== todayKey
+  const liftAction = doneLift
+    ? `Repeat ${liftDay?.name ?? 'workout'}`
+    : doingAnotherDay
+      ? `Do ${liftDay?.name ?? 'workout'} today`
+      : `Start ${liftDay?.name ?? 'workout'}`
+  const runAction = doneRun
+    ? 'Repeat run'
+    : doingAnotherDay
+      ? 'Do run today'
+      : `Start ${liftDay ? 'run' : run?.label ?? 'run'}`
 
   return (
     <div className="screen">
       {/* Title row — sync status and the lock live up here, not in a card */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div className="screen-title" style={{ padding: 0 }}>Workouts</div>
+        <div className="screen-title" style={{ padding: 0 }}>Today</div>
         <SyncBar />
       </div>
 
@@ -324,8 +335,8 @@ export function Home() {
           <div
             className="card"
             style={{
-              borderRadius: 30,
-              padding: 24,
+              borderRadius: 20,
+              padding: 20,
               display: 'flex',
               flexDirection: 'column',
               gap: 14,
@@ -471,7 +482,7 @@ export function Home() {
                     style={doneLift ? quietButton : voltButton}
                   >
                     <Play size={16} strokeWidth={2.5} fill="currentColor" />
-                    Start {liftDay.name}
+                    {liftAction}
                   </button>
                 )}
                 {run && (
@@ -482,7 +493,7 @@ export function Home() {
                     style={liftDay || doneRun ? quietButton : voltButton}
                   >
                     <Play size={15} strokeWidth={2.5} fill="currentColor" />
-                    Start {liftDay ? 'run' : run.label}
+                    {runAction}
                   </button>
                 )}
               </div>

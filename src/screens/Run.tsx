@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
 import { db } from '@/db/db'
-import { finishRun } from '@/lib/actions'
+import { discardSession, finishRun } from '@/lib/actions'
 import { fmtClock } from '@/lib/format'
 import {
   milesLabel,
@@ -15,6 +15,7 @@ import { isRun } from '@/lib/session'
 import { useEditMode } from '@/lib/sync'
 import { ProgressRing } from '@/components/ProgressRing'
 import { BackChevron } from '@/components/icons'
+import { DiscardDialog } from '@/components/DiscardDialog'
 
 /**
  * The live run screen. A run has no sets — the whole session is a clock against a
@@ -104,6 +105,7 @@ export function Run() {
   const [hr, setHr] = useState('')
   const [mins, setMins] = useState('')
   const [miles, setMiles] = useState('')
+  const [confirmDiscard, setConfirmDiscard] = useState(false)
 
   const open = useLiveQuery(
     () => db.sessions.filter((s) => s.finishedAt == null && !s.deleted).toArray(),
@@ -154,13 +156,17 @@ export function Run() {
   }
 
   async function proceedFinish() {
+    const completedSessionId = session!.id
     await finishRun(session!.id, {
       actualMin: minNum,
       actualMi: miNum,
       avgHr: hrNum,
     })
     setConfirmFinish(false)
-    navigate('/', { replace: true })
+    navigate('/', {
+      replace: true,
+      state: { completedSessionId, completedLabel: run.label },
+    })
   }
 
   return (
@@ -176,7 +182,7 @@ export function Run() {
       {/* Header */}
       <div
         style={{
-          padding: `calc(70px + env(safe-area-inset-top)) 20px 12px`,
+          padding: `calc(42px + env(safe-area-inset-top)) 20px 12px`,
           display: 'flex',
           alignItems: 'center',
           gap: 12,
@@ -206,18 +212,6 @@ export function Run() {
             {session.weekNumber ? `Week ${session.weekNumber} · ` : ''}
             Zone 2 · {zoneLabel(run.hrZoneMin, run.hrZoneMax)}
           </div>
-        </div>
-        <div
-          className="card display tabular-nums"
-          style={{
-            fontSize: 18,
-            fontWeight: 600,
-            borderRadius: 99,
-            borderColor: 'var(--color-pill-border)',
-            padding: '8px 14px',
-          }}
-        >
-          {fmtClock(elapsed)}
         </div>
       </div>
 
@@ -312,6 +306,12 @@ export function Run() {
               </div>
             )}
           </div>
+
+          {editMode && (
+            <button className="tap" onClick={() => setConfirmDiscard(true)} style={{ border: 0, background: 'transparent', color: 'var(--color-red)', padding: '8px 12px', fontSize: 12.5, fontWeight: 650 }}>
+              Discard run
+            </button>
+          )}
         </div>
       </div>
 
@@ -492,6 +492,9 @@ export function Run() {
             </div>
           </div>
         </div>
+      )}
+      {confirmDiscard && (
+        <DiscardDialog title={`Discard ${run.label}?`} body="This removes the unfinished run. Nothing will be added to History." onCancel={() => setConfirmDiscard(false)} onConfirm={() => void discardSession(session.id).then(() => navigate('/', { replace: true }))} />
       )}
     </div>
   )

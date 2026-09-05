@@ -31,7 +31,7 @@ export async function seedIfEmpty(): Promise<void> {
   BASE_TEMPLATES.forEach((t, i) => {
     const id = i + 1
     ids[t.slug] = id
-    days.push({ id, order: id, name: t.name, focus: t.focus, slug: t.slug })
+    days.push({ id, order: id, name: t.name, focus: t.focus, slug: t.slug, updatedAt: now })
     exercises.push(...templateExercises(t, id, now))
   })
   const weeks = baseWeeks(dateKey(upcomingMonday(new Date(now))), ids, now)

@@ -1,5 +1,7 @@
 import { useEffect, useRef } from 'react'
+import { useLiveQuery } from 'dexie-react-hooks'
 import { useRestTimer } from '@/lib/restTimer'
+import { db } from '@/db/db'
 
 /**
  * Holds a screen wake lock while a rest is running, so the phone doesn't dim or
@@ -12,7 +14,13 @@ import { useRestTimer } from '@/lib/restTimer'
  * overrun auto-stop) or this unmounts. Rendered once at the app root; draws nothing.
  */
 export function ScreenWakeLock() {
-  const { active } = useRestTimer()
+  const { active: resting } = useRestTimer()
+  const hasOpenSession = useLiveQuery(
+    async () => (await db.sessions.toArray()).some((s) => s.finishedAt == null && !s.deleted),
+    [],
+    false,
+  )
+  const active = resting || hasOpenSession
   const sentinel = useRef<WakeLockSentinel | null>(null)
 
   useEffect(() => {
