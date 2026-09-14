@@ -41,6 +41,17 @@ const ROW_ID = 1
 const PW_KEY = 'gt_edit_pw'
 const PUSH_DEBOUNCE_MS = 1200
 const RECOVERY_KEY = 'gt_recovery_snapshot'
+
+/** Purge only the old split from the local recovery copy as well. */
+export async function purgeLegacyRecovery(): Promise<void> {
+  const raw = localStorage.getItem(RECOVERY_KEY)
+  if (!raw) return
+  const { withoutLegacySplit } = await import('@/db/legacy')
+  const recovery = JSON.parse(raw) as { savedAt: number; data: Snapshot }
+  localStorage.setItem(RECOVERY_KEY, JSON.stringify({
+    ...recovery, data: withoutLegacySplit(recovery.data, Date.now()),
+  }))
+}
 // Mirrors actions.RESUME_WINDOW_MS (kept local to avoid an actions↔sync import cycle).
 // A still-open workout younger than this must not be clobbered by a remote snapshot.
 const OPEN_SESSION_WINDOW_MS = 6 * 60 * 60 * 1000
@@ -448,6 +459,7 @@ export async function enterEditMode(
   editMode = true
   promptOpen = false
   emit()
+  await applyRequestedPlanUpdate()
   // First editor on an empty project: seed the public row so viewers see content.
   if (!hasCloudRow) await push()
   return { ok: true }
@@ -494,6 +506,16 @@ export async function restoreRecoverySnapshot(): Promise<boolean> {
 
 /* ── Public API ────────────────────────────────────────────────────────────── */
 
+async function applyRequestedPlanUpdate(): Promise<void> {
+  if (!editMode) return
+  try {
+    const { migrateRequestedSplit } = await import('@/db/program')
+    await migrateRequestedSplit()
+  } catch (error) {
+    setStatus('error', error instanceof Error ? error.message : 'Could not update the saved plan.')
+  }
+}
+
 /** Wire up sync + seeding. Call once at startup (replaces the old seed call). */
 export async function initSync(): Promise<void> {
   registerHooks()
@@ -503,6 +525,7 @@ export async function initSync(): Promise<void> {
     editMode = true
     setStatus('offline')
     await seedIfEmpty()
+    await applyRequestedPlanUpdate()
     return
   }
 
@@ -519,4 +542,5 @@ export async function initSync(): Promise<void> {
 
   subscribeRealtime()
   await reconcile()
+  await applyRequestedPlanUpdate()
 }

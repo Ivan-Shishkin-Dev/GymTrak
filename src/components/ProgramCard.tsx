@@ -2,26 +2,22 @@ import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { addDays, format, parseISO } from 'date-fns'
 import { db } from '@/db/db'
+import { isLegacySplitDay } from '@/db/legacy'
 import { dateKey } from '@/lib/format'
 import { milesLabel, paceLabel, weekFor, weekMinutes } from '@/lib/program'
 import {
   BASE_FIRST_WEEK,
   BASE_LAST_WEEK,
   installBasePhase,
+  applyBalancedSplit,
+  deleteLegacySplit,
   setProgramStart,
   upcomingMonday,
 } from '@/db/program'
 import { ChevronDown } from '@/components/icons'
 import type { ProgramWeek } from '@/db/types'
 
-/**
- * The running program, surfaced in the Library.
- *
- * This is also where the Base Phase gets installed and where the two destructive
- * migrations live — archiving the legacy six-day split and removing the generic
- * Cardio line item. Both sit behind the same full-screen confirm the Library uses
- * for deleting a day, because neither is something you want on a mis-tap.
- */
+/** Running program controls and explicit cleanup for legacy workout data. */
 
 const inputStyle: React.CSSProperties = {
   background: 'var(--color-bg)',
@@ -136,18 +132,18 @@ export function ProgramCard({
   editing: boolean
 }) {
   const [open, setOpen] = useState(false)
-  const [confirm, setConfirm] = useState<'archive' | 'cardio' | null>(null)
+  const [confirm, setConfirm] = useState<'delete-legacy' | 'cardio' | null>(null)
   const [busy, setBusy] = useState(false)
+  const [splitMessage, setSplitMessage] = useState('')
 
   const weeks = useLiveQuery(
     async () => (await db.programWeeks.toArray()).sort((a, b) => a.id - b.id),
     [],
     [],
   )
-  // Slug-less, unarchived days are the legacy split — what "archive the old six"
-  // acts on. Counting them here keeps the confirm copy honest.
+  // Include archived days in the permanent legacy cleanup.
   const legacyCount = useLiveQuery(
-    async () => (await db.days.toArray()).filter((d) => !d.slug && !d.archived).length,
+    async () => (await db.days.toArray()).filter(isLegacySplitDay).length,
     [],
     0,
   )
@@ -288,6 +284,29 @@ export function ProgramCard({
 
           {editMode && editing && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+              <div style={{ fontSize: 13, color: 'var(--color-sub)', lineHeight: 1.5 }}>
+                Both uppers: Machine Press → T-Bar → Pec Dec → Lat Pulldown →
+                Shoulder Press → Lateral Raise → Incline Curl → Single-Arm Tricep.
+                Lower A starts with Leg Press; Lower B starts with SLDL. Both use
+                Leg Curl, Leg Extension, Adductor, Calf, Tibialis Raise, Hip Abduction,
+                and Cable Crunch. Existing loads are kept; enter your Machine Press loads.
+              </div>
+              <button
+                disabled={busy}
+                onClick={() => run(async () => {
+                  setSplitMessage('')
+                  try {
+                    await applyBalancedSplit()
+                    setSplitMessage('Split updated. Your next workouts will use this order.')
+                  } catch (error) {
+                    setSplitMessage(error instanceof Error ? error.message : 'Could not update the split.')
+                  }
+                })}
+                style={actionStyle('volt')}
+              >
+                Apply push/pull and lower split
+              </button>
+              {splitMessage && <div role="status" style={{ fontSize: 13 }}>{splitMessage}</div>}
               <label style={{ fontSize: 11.5, color: 'var(--color-sub)', fontWeight: 600 }}>
                 Week {BASE_FIRST_WEEK} starts (Monday)
               </label>
@@ -322,13 +341,13 @@ export function ProgramCard({
                   </button>
                   <button
                     disabled={busy || legacyCount === 0}
-                    onClick={() => setConfirm('archive')}
+                    onClick={() => setConfirm('delete-legacy')}
                     style={{
                       ...actionStyle('quiet'),
                       opacity: legacyCount === 0 ? 0.4 : 1,
                     }}
                   >
-                    Archive the old split ({legacyCount})
+                    Delete old six-day split ({legacyCount})
                   </button>
                   <button
                     disabled={busy || cardioCount === 0}
@@ -347,14 +366,21 @@ export function ProgramCard({
         </div>
       )}
 
-      {confirm === 'archive' && (
+      {confirm === 'delete-legacy' && (
         <Confirm
-          title="Archive the old split?"
-          body={`Hides ${legacyCount} day${legacyCount === 1 ? '' : 's'} from the Library. Nothing is deleted — past workouts keep working, and you can unarchive from the Archived section.`}
-          action="Archive"
+          title="Delete the old six-day split?"
+          body={`Permanently removes ${legacyCount} old days, their exercises, workout history, logged sets, and schedule links, including archived and recovery-copy data. Your current four-day split and runs stay. This cannot be undone.`}
+          action="Delete old split"
           onCancel={() => setConfirm(null)}
           onConfirm={() =>
-            run(() => installBasePhase({ startMonday: start, archiveLegacy: true }))
+            run(async () => {
+              try {
+                await deleteLegacySplit()
+                setSplitMessage('Old six-day split and its workout data deleted.')
+              } catch (error) {
+                setSplitMessage(error instanceof Error ? error.message : 'Could not delete the old split.')
+              }
+            })
           }
         />
       )}

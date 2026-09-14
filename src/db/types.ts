@@ -17,6 +17,7 @@ export const DaySchema = z.object({
   name: z.string(), // 'Upper C'
   focus: z.string(), // 'Shoulder lean'
   slug: z.string().optional(), // 'upper-a' — stable identity for the program installer.
+  splitRevision: z.number().int().optional(), // persisted, synced workout-template migration version
   // Matching on `name` would break the moment a day is renamed, so the installer
   // keys off this instead. Absent on the six legacy seed days, which is what makes
   // "archive everything without a slug" a safe, idempotent one-shot.

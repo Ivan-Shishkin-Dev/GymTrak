@@ -59,7 +59,11 @@ Cloud sync is optional locally. Copy `.env.example` to `.env` and fill in your S
 
 On first launch it seeds the split (the four lift days and their exercises) plus the eight-week running base phase, anchored to the upcoming Monday, into IndexedDB. After that your data lives locally and, if configured, syncs to Supabase last-write-wins by timestamp.
 
-The seed only runs on an empty database, so it can't reach an install that already has data. There the same split and program are installed from **Plan → Edit → Program → Install base phase**, which is idempotent: re-running it never duplicates a week and never resets a load you've since progressed. Archiving the previous six-day split and removing its `Cardio` line item are separate, confirmed actions in the same card; archived days stay in the database so every past workout still resolves.
+The seed only runs on an empty database, so it can't reach an install that already has data. There the same split and program are installed from **Plan → Edit → Program → Install base phase**, which is idempotent: re-running it never duplicates a week and never resets a load you've since progressed. Use **Delete old six-day split** in the same card to permanently remove the original days (including archived ones), their exercises, sessions, logged sets, and schedule references. The cleanup also removes that split from the local recovery copy. Current template days, custom days outside the original IDs, and runs are preserved. Removing generic `Cardio` line items remains a separate action.
+
+The requested four-day replacement now applies automatically once after startup sync in edit mode (or when you unlock editing), including removal of the original six-day split and its records. A synced revision on each current day prevents later custom edits from being reset. An open current-plan workout delays the update until you finish or discard it and reload.
+
+To manually update an existing four-day plan, use **Plan → Edit → Program → Apply push/pull and lower split**. Both upper days alternate Machine Press, T-Bar, Pec Dec, and Lat Pulldown before shoulders and arms. Lower A starts with Leg Press and Lower B with SLDL, followed by the same accessories, including both Leg Curl and Leg Extension. The update preserves matching exercises' loads and logged history, leaves the schedule intact, and requires any open workout on these days to be finished or discarded first. Machine Press starts with blank loads for you to enter.
 
 ## Project structure
 

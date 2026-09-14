@@ -1,13 +1,15 @@
 import { addDays, parseISO } from 'date-fns'
 import { db } from './db'
 import { dateKey } from '@/lib/format'
-import { isEditMode } from '@/lib/sync'
+import { isEditMode, purgeLegacyRecovery } from '@/lib/sync'
+import { withoutLegacySplit } from './legacy'
 import { dayRank } from '@/lib/rotation'
 import {
   BASE_FIRST_WEEK,
   BASE_TEMPLATES,
   baseWeeks,
   templateExercises,
+  upcomingMonday,
   type TemplateSlug,
 } from './templates'
 import type { Day, Exercise } from './types'
@@ -45,6 +47,113 @@ export type InstallReport = {
 
 function requireEdit(): void {
   if (!isEditMode()) throw new Error('Read-only: enter the edit password first.')
+}
+
+/** Permanently remove the original six-day split and its dependent records. */
+export async function deleteLegacySplit(): Promise<void> {
+  requireEdit()
+  await purgeLegacyRecovery()
+  await deleteLegacySplitRecords()
+}
+
+async function deleteLegacySplitRecords(): Promise<void> {
+  await db.transaction('rw', db.tables, async () => {
+    const before = {
+      days: await db.days.toArray(),
+      exercises: await db.exercises.toArray(),
+      sessions: await db.sessions.toArray(),
+      sets: await db.sets.toArray(),
+      programWeeks: await db.programWeeks.toArray(),
+    }
+    const after = withoutLegacySplit(before, Date.now())
+    for (const key of ['days', 'exercises', 'sessions', 'sets'] as const) {
+      const kept = new Set<string | number>(after[key].map((row) => row.id))
+      await db.table(key).bulkDelete(before[key].filter((row) => !kept.has(row.id)).map((row) => row.id))
+    }
+    const changedWeeks = after.programWeeks.filter((week, index) => week !== before.programWeeks[index])
+    if (changedWeeks.length) await db.programWeeks.bulkPut(changedWeeks)
+  })
+}
+
+/** Apply the current split to saved days without resetting progressed loads or history. */
+export async function applyBalancedSplit(): Promise<void> {
+  requireEdit()
+  await db.transaction('rw', [db.days, db.exercises, db.sessions], async () => {
+    const days = await db.days.toArray()
+    const targets = BASE_TEMPLATES.map((template) => ({
+      template,
+      day: days.find((day) => day.slug === template.slug && !day.archived),
+    }))
+    if (targets.some(({ day }) => !day)) {
+      throw new Error('Install the base phase first to create all four lift days.')
+    }
+    const dayIds = new Set(targets.map(({ day }) => day!.id))
+    const sessions = await db.sessions.toArray()
+    if (sessions.some((session) => dayIds.has(session.dayId) && !session.deleted && session.finishedAt == null)) {
+      throw new Error('Finish or discard your open workout before updating the split.')
+    }
+    const exercises = await db.exercises.toArray()
+    const now = Date.now()
+    for (const { template, day } of targets) {
+      const existing = exercises.filter((exercise) => exercise.dayId === day!.id)
+      const desired = templateExercises(template, day!.id, now).map((row) => {
+        const own = existing.find((exercise) => exercise.name === row.name)
+        const source = own ?? exercises
+          .filter((exercise) => dayIds.has(exercise.dayId) && exercise.name === row.name)
+          .sort((a, b) => b.updatedAt - a.updatedAt)[0]
+        return source
+          ? { ...source, id: own?.id ?? row.id, dayId: row.dayId, order: row.order, updatedAt: now }
+          : row
+      })
+      const kept = new Set(desired.map((exercise) => exercise.id))
+      await db.exercises.bulkDelete(existing.filter((exercise) => !kept.has(exercise.id)).map((exercise) => exercise.id))
+      await db.exercises.bulkPut(desired)
+      await db.days.update(day!.id, { focus: template.focus, splitRevision: 1, updatedAt: now })
+    }
+  })
+}
+
+/** Apply the user's requested replacement once, after sync and edit authorization. */
+export async function migrateRequestedSplit(): Promise<void> {
+  requireEdit()
+  // Recovery storage is outside IndexedDB and must not hold a transaction open.
+  await purgeLegacyRecovery()
+  await db.transaction('rw', db.tables, async () => {
+    const days = await db.days.toArray()
+    const current = days.filter((day) => BASE_TEMPLATES.some((template) => template.slug === day.slug))
+    const needsUpdate = BASE_TEMPLATES.some((template) =>
+      !current.some((day) => day.slug === template.slug && day.splitRevision === 1))
+    const legacy = days.filter((day) => !day.slug && day.id >= 1 && day.id <= 6)
+    if (!needsUpdate && !legacy.length) return
+    if (needsUpdate) {
+      const currentIds = new Set(current.map((day) => day.id))
+      const sessions = await db.sessions.toArray()
+      if (sessions.some((session) => currentIds.has(session.dayId) && !session.deleted && session.finishedAt == null)) {
+        throw new Error('Finish or discard your open workout, then reload to update the plan.')
+      }
+      const now = Date.now()
+      let nextId = Math.max(6, ...days.map((day) => day.id)) + 1
+      let nextOrder = Math.max(0, ...days.map(dayRank)) + 1
+      const ids = {} as Record<TemplateSlug, number>
+      for (const template of BASE_TEMPLATES) {
+        const found = current.find((day) => day.slug === template.slug)
+        const id = found?.id ?? nextId++
+        ids[template.slug] = id
+        if (!found) {
+          await db.days.add({ id, order: nextOrder++, slug: template.slug, name: template.name, focus: template.focus, updatedAt: now })
+          await db.exercises.bulkAdd(templateExercises(template, id, now))
+        } else if (found.archived) {
+          await db.days.update(id, { archived: false, updatedAt: now })
+        }
+      }
+      await applyBalancedSplit()
+      if (await db.programWeeks.count() === 0) {
+        await db.programWeeks.bulkAdd(baseWeeks(dateKey(upcomingMonday(new Date(now))), ids, now))
+      }
+    }
+    // Already scrubbed recovery above; this call performs only database work.
+    await deleteLegacySplitRecords()
+  })
 }
 
 /** Anything named "Cardio" — the generic placeholder the run plan supersedes. */
