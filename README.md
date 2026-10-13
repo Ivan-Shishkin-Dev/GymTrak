@@ -9,9 +9,9 @@ I tried a bunch of gym apps and none of them did quite what I wanted. Most paywa
 ## What it does
 
 - **It knows what today is.** Home shows the current week of my training program and what that day actually asks for — a lift, a run, both, or rest. The week is anchored to a start date, so it advances on its own. I can still tap any other day and start that instead.
-- **History closes the loop.** Completed lifts and runs are grouped by date with full set details, planned-versus-actual run metrics, recent training time, prior-performance context, and automatic best-load markers.
-- **Runs are first-class.** Easy and long runs are scheduled with a duration and a heart-rate zone, and logged on their own screen: a clock against the prescribed time, with average HR recorded at the end. Going over the hard cap flags the session; it never blocks saving it.
-- **Minutes, shown in miles.** Runs are prescribed in minutes — that's the point of a Zone 2 block, since the same heart rate buys more distance as fitness comes in. Every duration is also shown as the distance it works out to at my measured Zone 2 pace (2.5 mi in 30 min → 12:00 /mi). Logging the miles I actually covered shows the pace I really held, so the estimate can be corrected rather than assumed.
+- **Runs are a plan, not a log.** Easy runs, long runs, intervals, tempo and a closing 5K time trial are scheduled with a duration, a heart-rate range and the workout written out. I track the run itself on my watch, so the app only says what to do; there is nothing to start or finish.
+- **Lifting and running look different.** Today's card has a lift part with the start button and a run part with the prescription, each in its own colour, and the week list and Plan tab keep the same split.
+- **Minutes first.** Runs are prescribed in minutes. Easy and long runs also show roughly how far that is at my Zone 2 pace (2.5 mi in 30 min → 12:00 /mi); faster sessions cover more, so they show minutes only.
 - **Log it set by set.** Each set comes prefilled with what I did last time — tap to mark it done, or edit the weight/reps to what I actually hit.
 - **Focused by default.** Live lifting shows the current exercise first, provides one-tap load adjustments, and keeps the full workout one tap away in Overview.
 - **Loads carry forward.** Finishing a workout writes completed performance back to the Plan, so next time prefills from reality instead of a guess. Unfinished targets and deliberate deload volume are preserved, so ending early never quietly shrinks the next workout.
@@ -57,25 +57,25 @@ npm run preview  # serve the build (service worker is active here)
 
 Cloud sync is optional locally. Copy `.env.example` to `.env` and fill in your Supabase URL and anon/publishable key to turn it on. Without it the app still runs fully offline against local storage — it just won't sync.
 
-On first launch it seeds the split (the four lift days and their exercises) plus the eight-week running base phase, anchored to the upcoming Monday, into IndexedDB. After that your data lives locally and, if configured, syncs to Supabase last-write-wins by timestamp.
+On first launch it seeds the split (the four lift days and their exercises) plus the eight-week run block (weeks 1–8), anchored to the upcoming Monday, into IndexedDB. After that your data lives locally and, if configured, syncs to Supabase last-write-wins by timestamp.
 
-The seed only runs on an empty database, so it can't reach an install that already has data. There the same split and program are installed from **Plan → Edit → Program → Install base phase**, which is idempotent: re-running it never duplicates a week and never resets a load you've since progressed. Use **Delete old six-day split** in the same card to permanently remove the original days (including archived ones), their exercises, sessions, logged sets, and schedule references. The cleanup also removes that split from the local recovery copy. Current template days, custom days outside the original IDs, and runs are preserved. Removing generic `Cardio` line items remains a separate action.
+The seed only runs on an empty database, so it can't reach an install that already has data. There the same split and program are installed from **Plan → Edit → Run plan → Install run block**, which is idempotent: re-running it never duplicates a week and never resets a load you've since progressed. Use **Delete old six-day split** in the same card to permanently remove the original days (including archived ones), their exercises, sessions, logged sets, and schedule references. The cleanup also removes that split from the local recovery copy. Current template days, custom days outside the original IDs, and runs are preserved. Removing generic `Cardio` line items remains a separate action.
 
-The requested four-day replacement now applies automatically once after startup sync in edit mode (or when you unlock editing), including removal of the original six-day split and its records. A synced revision on each current day prevents later custom edits from being reset. An open current-plan workout delays the update until you finish or discard it and reload.
+Plan changes apply automatically once after startup sync in edit mode (or when you unlock editing), including removal of the original six-day split and its records. A synced `planRevision` on each current day prevents later custom edits from being reset. An open current-plan workout delays the update until you finish or discard it and reload.
 
-To manually update an existing four-day plan, use **Plan → Edit → Program → Apply push/pull and lower split**. Both upper days alternate Machine Press, T-Bar, Pec Dec, and Lat Pulldown before shoulders and arms. Lower A starts with Leg Press and Lower B with SLDL, followed by the same accessories, including both Leg Curl and Leg Extension. The update preserves matching exercises' loads and logged history, leaves the schedule intact, and requires any open workout on these days to be finished or discarded first. Machine Press starts with blank loads for you to enter.
+To put an existing four-day plan back to its template, use **Plan → Edit → Run plan → Reset the split to its template**. Both upper days run Machine Press, T-Bar, Pec Dec, Lat Pulldown, and Lateral Raise. Both lower days open with Shoulder Press, Incline Curl, and Single-Arm Tricep; Lower A then starts its leg work with Leg Press and Lower B with SLDL, followed by the same accessories. The reset keeps matching exercises' loads and logged sets, leaves the schedule intact, brings back exercises you removed, and requires any open workout on these days to be finished or discarded first.
 
 ## Project structure
 
 ```
 src/
   main.tsx        registers the service worker, starts sync, renders
-  App.tsx         routes: /, /history, /library (tabbed) + /log and /run (full-screen)
+  App.tsx         routes: / and /library (tabbed) + /log (full-screen)
   index.css       Tailwind + design tokens + base component styles
   db/
     types.ts      Zod schemas → inferred record types
     db.ts         Dexie database + indexes (days · exercises · sessions · sets · programWeeks)
-    templates.ts  the split (four lift days) + the base-phase weeks, as data
+    templates.ts  the split (four lift days) + the run-block weeks, as data
     seed.ts       first-launch seed: builds an empty database from the templates
     program.ts    the idempotent installer/migration for a database that has data
   lib/
@@ -88,7 +88,7 @@ src/
     supabase.ts   the anon client (no auth)
     sync.ts       snapshot serialize/apply, edit mode, push/pull
   components/      AppLayout, TabBar, WeekList, IdentityGate, SyncBar, LoadEditor, …
-  screens/        Home, History, Library, Log, Run
+  screens/        Home, Library, Log
 scripts/shot.mjs  screenshot loop (headless Chrome at a phone viewport)
 ```
 

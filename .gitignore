@@ -17,3 +17,6 @@ dev-dist
 
 # screenshots from the verify loop
 /.shots
+
+# local dev-server launch config
+.claude/launch.json
