@@ -84,10 +84,16 @@ export function slotSummary(
   return 'Rest'
 }
 
-/** '25 min easy run · Zone 2' — the run sub-line. The bpm range, hard cap, pace
- *  and strides copy deliberately stay on the run screen, where they get read. */
-export const runLine = (run: RunPrescription): string =>
-  `${run.durationMin} min ${lower(run.label)} · Zone 2`
+const EFFORT: Record<RunPrescription['label'], string> = {
+  'Easy Run': 'Zone 2',
+  'Long Run': 'Zone 2',
+  Intervals: 'Hard reps',
+  'Tempo Run': 'Steady hard',
+  'Time Trial': 'Race effort',
+}
+
+/** How hard a run is meant to feel, in two words. */
+export const effortLabel = (label: RunPrescription['label']): string => EFFORT[label]
 
 /* ── Pace ─────────────────────────────────────────────────────────────────── */
 
@@ -98,7 +104,8 @@ export const runLine = (run: RunPrescription): string =>
  * Zone 2 block — the effort is capped by heart rate, and as aerobic fitness
  * improves the same 140 bpm buys more distance for free. A distance target would
  * quietly turn an easy run into a hard one on a bad day. So pace is used for
- * DISPLAY only: it says what each prescription works out to on the ground.
+ * DISPLAY only: it says what an easy or long run works out to on the ground.
+ * Faster sessions cover more than this, so they are shown in minutes alone.
  *
  * Edit the reference below when a run says otherwise and every mileage figure in
  * the app moves with it.
@@ -113,18 +120,6 @@ export const milesFor = (min: number): number => min / ZONE2_PACE
 
 /** '2.5 mi' — what a duration works out to. Always shown as an approximation. */
 export const milesLabel = (min: number): string => `${milesFor(min).toFixed(1)} mi`
-
-/** '12:00 /mi' from decimal minutes per mile. */
-export function paceLabel(minPerMi: number = ZONE2_PACE): string {
-  const secs = Math.round(minPerMi * 60)
-  return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')} /mi`
-}
-
-/** Pace actually run, or null when either half of the measurement is missing. */
-export function pacePerMile(min: number | null, miles: number | null): number | null {
-  if (min == null || miles == null || !(min > 0) || !(miles > 0)) return null
-  return min / miles
-}
 
 /** Total prescribed run minutes across a week. */
 export const weekMinutes = (w: ProgramWeek): number =>

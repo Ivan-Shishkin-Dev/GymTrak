@@ -15,6 +15,8 @@
   --color-volt: #d2f56f;
   --color-on-volt: #171b09;
   --color-volt-tint: rgba(210, 245, 111, 0.09);
+  --color-run: #7cc4ff;
+  --color-run-tint: rgba(124, 196, 255, 0.09);
   --color-track: rgba(255, 255, 255, 0.1);
   --color-ring-off: rgba(255, 255, 255, 0.13);
   --color-check-border: rgba(255, 255, 255, 0.22);

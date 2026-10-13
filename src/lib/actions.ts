@@ -3,13 +3,10 @@ import { addDays, parseISO } from 'date-fns'
 import { dateKey, parseLoad, parseReps, getSetRows } from './format'
 import { isEditMode } from './sync'
 import { dayRank, byDayOrder } from './rotation'
-import { RUN_DAY_ID } from '@/db/types'
 import type {
   Day,
   Exercise,
-  ProgramSlot,
   ProgramWeek,
-  RunPrescription,
   Session,
   WorkoutSet,
 } from '@/db/types'
@@ -114,83 +111,6 @@ export async function startSession(
   })
 
   return sessionId
-}
-
-/**
- * Start a run from its prescription. A run session carries no `sets` rows at all
- * — its whole record is the clock and the RunLog — so it lives on /run rather
- * than /log, and `dayId` is the RUN_DAY_ID sentinel because there's no lift day.
- *
- * The prescription is COPIED onto the session rather than referenced, so editing
- * or re-anchoring the program later can't rewrite what you actually ran.
- */
-export async function startRun(
-  week: ProgramWeek,
-  slot: ProgramSlot,
-  scheduledDate?: string,
-): Promise<string | null> {
-  requireEdit()
-  if (!slot.run) return null
-  const now = Date.now()
-  const p: RunPrescription = slot.run
-  const plannedDate = scheduledDate ?? dateKey(new Date(now))
-
-  const resumed = await claimOpenSession(
-    (s) => s.dayId === RUN_DAY_ID && (s.scheduledDate ?? s.date) === plannedDate && now - s.startedAt < RESUME_WINDOW_MS,
-  )
-  if (resumed) return resumed
-
-  const sessionId = uid()
-  await db.sessions.add({
-    id: sessionId,
-    dayId: RUN_DAY_ID,
-    date: dateKey(new Date()),
-    ...(scheduledDate ? { scheduledDate } : {}),
-    dayNameSnapshot: p.label,
-    focusSnapshot: 'Zone 2',
-    startedAt: now,
-    finishedAt: null,
-    durationSec: null,
-    updatedAt: now,
-    type: 'run',
-    weekNumber: week.id,
-    ...(week.isDeload ? { deload: true } : {}),
-    run: {
-      label: p.label,
-      dow: slot.dow,
-      plannedMin: p.durationMin,
-      hrZoneMin: p.hrZoneMin,
-      hrZoneMax: p.hrZoneMax,
-      hrHardCap: p.hrHardCap,
-      strides: p.strides,
-      actualMin: null,
-      actualMi: null,
-      avgHr: null,
-      notes: p.notes,
-    },
-  })
-  return sessionId
-}
-
-/**
- * Finish a run. Both metrics are optional — a run with no watch reading is still
- * a run, and an average HR over the hard cap flags the session without ever
- * blocking the save.
- */
-export async function finishRun(
-  sessionId: string,
-  metrics: { actualMin: number | null; actualMi: number | null; avgHr: number | null },
-): Promise<void> {
-  requireEdit()
-  const session = await db.sessions.get(sessionId)
-  if (!session?.run) return
-  const now = Date.now()
-  await db.sessions.update(sessionId, {
-    finishedAt: now,
-    durationSec: Math.round((now - session.startedAt) / 1000),
-    updatedAt: now,
-    run: { ...session.run, ...metrics },
-  })
 }
 
 /** Toggle a set done/undone. Returns true if it is now done (so the caller can start rest). */
@@ -542,12 +462,6 @@ export async function reopenSession(sessionId: string): Promise<Session | null> 
     updatedAt: Date.now(),
   })
   return { ...session, finishedAt: null, durationSec: null }
-}
-
-/** Soft-delete a completed session while retaining a recovery path in synced data. */
-export async function deleteSession(sessionId: string): Promise<void> {
-  requireEdit()
-  await db.sessions.update(sessionId, { deleted: true, updatedAt: Date.now() })
 }
 
 /** Save edits to a current or future program week. */

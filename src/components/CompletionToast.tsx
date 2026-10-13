@@ -2,7 +2,6 @@ import { useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { RotateCcw } from 'lucide-react'
 import { reopenSession } from '@/lib/actions'
-import { sessionRoute } from '@/lib/session'
 
 type CompletionState = { completedSessionId?: string; completedLabel?: string }
 
@@ -29,7 +28,7 @@ export function CompletionToast() {
           className="tap"
           onClick={async () => {
             const session = await reopenSession(id)
-            if (session) navigate(sessionRoute(session), { replace: true, state: null })
+            if (session) navigate('/log', { replace: true, state: null })
           }}
           style={{ border: 0, background: 'transparent', color: 'var(--color-volt)', display: 'flex', alignItems: 'center', gap: 6, padding: '6px 2px', fontSize: 13, fontWeight: 700 }}
         >

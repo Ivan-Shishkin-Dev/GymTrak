@@ -4,7 +4,7 @@ import { addDays, format, parseISO } from 'date-fns'
 import { db } from '@/db/db'
 import { isLegacySplitDay } from '@/db/legacy'
 import { dateKey } from '@/lib/format'
-import { milesLabel, paceLabel, weekFor, weekMinutes } from '@/lib/program'
+import { weekFor, weekMinutes } from '@/lib/program'
 import {
   BASE_FIRST_WEEK,
   BASE_LAST_WEEK,
@@ -111,9 +111,9 @@ function Confirm({
   )
 }
 
-/** '30/35/25/55' — the week's run minutes, Mon/Wed/Thu/Sat. */
+/** '20/30/40' — the week's run minutes, Mon/Wed/Sat. */
 function runMinutes(w: ProgramWeek): string {
-  return (['mon', 'wed', 'thu', 'sat'] as const)
+  return (['mon', 'wed', 'sat'] as const)
     .map((d) => w.slots.find((s) => s.dow === d)?.run?.durationMin ?? 0)
     .join('/')
 }
@@ -153,10 +153,6 @@ export function ProgramCard({
     [],
     0,
   )
-
-  // Derived, not stored: the phase is prescribed in minutes, and mileage is what
-  // those minutes come to at the current Zone 2 pace.
-  const phaseTotal = weeks.reduce((t, w) => t + weekMinutes(w), 0)
 
   const installed = weeks.length > 0
   // What the collapsed row says. "Weeks 9–16" is true but inert; where you are in
@@ -203,7 +199,7 @@ export function ProgramCard({
       >
         <div style={{ flex: 1, minWidth: 0 }}>
           <div className="display" style={{ fontSize: 21, fontWeight: 700, lineHeight: 1.05 }}>
-            Program
+            Run plan
           </div>
           <div style={{ fontSize: 12, color: 'var(--color-sub)', marginTop: 2 }}>
             {status}
@@ -242,7 +238,7 @@ export function ProgramCard({
                         fontVariantNumeric: 'tabular-nums',
                       }}
                     >
-                      {runMinutes(w)} min · {milesLabel(weekMinutes(w))}
+                      {runMinutes(w)} min · {weekMinutes(w)} total
                     </div>
                   </div>
                   {w.isDeload && (
@@ -271,14 +267,13 @@ export function ProgramCard({
                   lineHeight: 1.5,
                 }}
               >
-                Minutes are Mon/Wed/Thu/Sat · miles at {paceLabel()} ·{' '}
-                {milesLabel(phaseTotal)} total
+                Minutes are Mon / Wed / Sat.
               </div>
             </div>
           ) : (
             <div style={{ fontSize: 13, color: 'var(--color-sub)', lineHeight: 1.5 }}>
-              The base phase adds eight scheduled weeks of Zone 2 running alongside
-              four consolidated lift days. Nothing is removed until you say so.
+              The run block adds eight scheduled weeks of easy, fast and long runs
+              alongside four consolidated lift days. Nothing is removed until you say so.
             </div>
           )}
 
@@ -286,10 +281,11 @@ export function ProgramCard({
             <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
               <div style={{ fontSize: 13, color: 'var(--color-sub)', lineHeight: 1.5 }}>
                 Both uppers: Machine Press → T-Bar → Pec Dec → Lat Pulldown →
-                Shoulder Press → Lateral Raise → Incline Curl → Single-Arm Tricep.
-                Lower A starts with Leg Press; Lower B starts with SLDL. Both use
-                Leg Curl, Leg Extension, Adductor, Calf, Tibialis Raise, Hip Abduction,
-                and Cable Crunch. Existing loads are kept; enter your Machine Press loads.
+                Lateral Raise. Both lowers open with Shoulder Press, Incline Curl
+                and Single-Arm Tricep; then Lower A goes to Leg Press and Lower B to
+                SLDL. Both finish with Leg Curl, Leg Extension, Adductor, Calf,
+                Tibialis Raise, Hip Abduction, and Cable Crunch. Existing loads are
+                kept, and exercises you removed come back.
               </div>
               <button
                 disabled={busy}
@@ -304,7 +300,7 @@ export function ProgramCard({
                 })}
                 style={actionStyle('volt')}
               >
-                Apply push/pull and lower split
+                Reset the split to its template
               </button>
               {splitMessage && <div role="status" style={{ fontSize: 13 }}>{splitMessage}</div>}
               <label style={{ fontSize: 11.5, color: 'var(--color-sub)', fontWeight: 600 }}>
@@ -323,7 +319,7 @@ export function ProgramCard({
                   onClick={() => run(() => installBasePhase({ startMonday: start }))}
                   style={actionStyle('volt')}
                 >
-                  Install base phase
+                  Install run block
                 </button>
               ) : (
                 <>

@@ -1,5 +1,5 @@
-import { Check } from 'lucide-react'
-import { DOWS, slotDate, slotSummary } from '@/lib/program'
+import { Check, Dumbbell, Footprints } from 'lucide-react'
+import { DOWS, slotDate } from '@/lib/program'
 import type { Dow, Day, ProgramWeek } from '@/db/types'
 
 /**
@@ -9,8 +9,10 @@ import type { Dow, Day, ProgramWeek } from '@/db/types'
  * Codes fit, but they have to be decoded — and the one question this screen
  * exists to answer is "what am I doing". A row is wide enough to just say it.
  *
- * Tapping a row selects it, which drives the card above; today is marked, and a
- * day with a finished session gets a check. Renders as a stack of hairline-
+ * Lifting and running read as two different things: a lift leads the row with
+ * its name, a run sits on the right in the run colour, and a run-only day is
+ * named by its run. Tapping a row selects it, which drives the card above; today
+ * is marked, and a day with a finished lift gets a check. Renders as a stack of hairline-
  * separated rows meant to sit inside a `.card.list-card`.
  */
 
@@ -24,7 +26,7 @@ export function WeekList({
 }: {
   week: ProgramWeek
   days: Day[]
-  /** 'yyyy-MM-dd' of every date with a finished session. */
+  /** 'yyyy-MM-dd' of every date with a finished lift. */
   doneDates: Set<string>
   todayKey: string
   selected: Dow
@@ -39,8 +41,9 @@ export function WeekList({
         const isSel = dow === selected
         const done = doneDates.has(date)
         const dayName = days.find((d) => d.id === slot?.liftDayId)?.name ?? null
-        const text = slotSummary(slot, dayName)
-        const rest = text === 'Rest'
+        const run = slot?.run ?? null
+        const rest = !dayName && !run
+        const text = dayName ?? run?.label ?? 'Rest'
 
         return (
           <button
@@ -85,6 +88,17 @@ export function WeekList({
 
             <span
               style={{
+                width: 15,
+                flexShrink: 0,
+                display: 'flex',
+                color: dayName ? 'var(--color-volt)' : run ? 'var(--color-run)' : 'transparent',
+              }}
+            >
+              {dayName ? <Dumbbell size={15} /> : <Footprints size={15} />}
+            </span>
+
+            <span
+              style={{
                 flex: 1,
                 minWidth: 0,
                 fontSize: 14.5,
@@ -97,6 +111,24 @@ export function WeekList({
             >
               {text}
             </span>
+
+            {run && (
+              <span
+                style={{
+                  flexShrink: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  fontSize: 12.5,
+                  fontWeight: 600,
+                  fontVariantNumeric: 'tabular-nums',
+                  color: 'var(--color-run)',
+                }}
+              >
+                {dayName && <Footprints size={13} />}
+                {run.durationMin} min
+              </span>
+            )}
 
             <span
               style={{

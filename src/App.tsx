@@ -7,10 +7,8 @@ import { NoticeHost } from '@/components/NoticeHost'
 import { AppErrorBoundary } from '@/components/AppErrorBoundary'
 
 const Home = lazy(() => import('@/screens/Home').then((module) => ({ default: module.Home })))
-const History = lazy(() => import('@/screens/History').then((module) => ({ default: module.History })))
 const Library = lazy(() => import('@/screens/Library').then((module) => ({ default: module.Library })))
 const Log = lazy(() => import('@/screens/Log').then((module) => ({ default: module.Log })))
-const Run = lazy(() => import('@/screens/Run').then((module) => ({ default: module.Run })))
 
 export function App() {
   return (
@@ -24,11 +22,9 @@ export function App() {
             <Routes>
               <Route element={<AppLayout />}>
                 <Route path="/" element={<Home />} />
-                <Route path="/history" element={<History />} />
                 <Route path="/library" element={<Library />} />
               </Route>
               <Route path="/log" element={<Log />} />
-              <Route path="/run" element={<Run />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Suspense>

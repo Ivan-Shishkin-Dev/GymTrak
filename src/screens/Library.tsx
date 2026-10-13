@@ -778,10 +778,12 @@ export function Library() {
         )}
       </div>
 
+      <SectionLabel color="var(--color-run)">RUNNING</SectionLabel>
       <ProgramCard editMode={editMode} editing={editMode && editing} />
 
       {editMode && editing && <ScheduleEditor weeks={weeks} days={days} />}
 
+      <SectionLabel color="var(--color-volt)">LIFTING</SectionLabel>
       {days.map((day, i) => {
         const rows = exercises
           .filter((e) => e.dayId === day.id)
@@ -885,6 +887,14 @@ export function Library() {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+function SectionLabel({ color, children }: { color: string; children: string }) {
+  return (
+    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.12em', color, marginTop: 4 }}>
+      {children}
     </div>
   )
 }

@@ -1,10 +1,9 @@
 import { useState } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useNavigate } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, Check, Play } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Check, Dumbbell, Footprints, Play } from 'lucide-react'
 import { db } from '@/db/db'
-import { RUN_DAY_ID } from '@/db/types'
-import { startSession, startRun, RESUME_WINDOW_MS } from '@/lib/actions'
+import { startSession, RESUME_WINDOW_MS } from '@/lib/actions'
 import { byDayOrder } from '@/lib/rotation'
 import { format, parseISO } from 'date-fns'
 import { dateKey } from '@/lib/format'
@@ -13,13 +12,15 @@ import {
   dowLabel,
   dowOf,
   isRest,
-  runLine,
+  effortLabel,
+  milesLabel,
   slotDate,
-  slotSummary,
   slotOf,
+  STRIDES_NOTE,
   weekFor,
+  zoneLabel,
 } from '@/lib/program'
-import { hrFlagged, isRun } from '@/lib/session'
+import { isRun } from '@/lib/session'
 import { ExerciseSummary } from '@/components/ExerciseSummary'
 import { WeekList } from '@/components/WeekList'
 import { SyncBar } from '@/components/SyncBar'
@@ -30,10 +31,10 @@ import type { Dow, Exercise } from '@/db/types'
 /**
  * Home answers exactly one question: what am I doing today.
  *
- * The card says it in words, the week below says it for the other six days, and
- * everything else — bpm ranges, the hard cap, pace, mileage, strides technique —
- * lives on the screen where it gets read, which is /run and /log. Anything here
- * that isn't the answer or the button is competing with them.
+ * The card answers it in two labelled parts, the lift and the run, and the week
+ * below says it for the other six days. A lift is started and logged from here.
+ * A run is only ever described: it gets tracked on a watch, not in this app, so
+ * its whole prescription is on the card and there is nothing to start.
  */
 
 /** Flat card surface for the day you're being asked about. */
@@ -92,6 +93,16 @@ const voltButton: React.CSSProperties = {
   marginTop: 2,
 }
 
+/** The small coloured label that opens the lift and the run part of the card. */
+function PartLabel({ color, icon, children }: { color: string; icon: React.ReactNode; children: string }) {
+  return (
+    <div style={{ ...eyebrowStyle, color, display: 'flex', alignItems: 'center', gap: 7 }}>
+      {icon}
+      {children}
+    </div>
+  )
+}
+
 const quietButton: React.CSSProperties = {
   ...voltButton,
   background: 'transparent',
@@ -112,7 +123,7 @@ export function Home() {
   // means switching days collapses it for free — no effect to keep in sync.
   const [openExDow, setOpenExDow] = useState<Dow | null>(null)
   // Set when starting would discard a different session that's still open.
-  const [pending, setPending] = useState<'lift' | 'run' | null>(null)
+  const [pending, setPending] = useState(false)
 
   const days = useLiveQuery(async () => (await db.days.toArray()).sort(byDayOrder), [])
   const sessions = useLiveQuery(() => db.sessions.toArray(), [])
@@ -153,8 +164,9 @@ export function Home() {
     [] as Exercise[],
   )
 
+  // Only lifts are logged here, so only a lift can mark a day done.
   const doneDates = new Set(
-    sessionList.filter((s) => s.finishedAt != null && !s.deleted).map((s) => s.scheduledDate ?? s.date),
+    sessionList.filter((s) => s.finishedAt != null && !s.deleted && !isRun(s)).map((s) => s.scheduledDate ?? s.date),
   )
 
   // What's already been done on the day we're looking at, so a finished day reads
@@ -163,7 +175,6 @@ export function Home() {
   const finishedOn = sessionList.filter(
     (s) => (s.scheduledDate ?? s.date) === selDate && s.finishedAt != null && !s.deleted,
   )
-  const doneRun = finishedOn.find(isRun)
   const doneLift = liftDay
     ? finishedOn.find((s) => !isRun(s) && s.dayId === liftDay.id)
     : undefined
@@ -173,12 +184,10 @@ export function Home() {
   // The one recent, still-open session (if any) — starting something else would
   // discard it, so we confirm first instead of dropping it silently.
   const openSession = sessionList.find(
-    (s) => s.finishedAt == null && !s.deleted && Date.now() - s.startedAt < RESUME_WINDOW_MS,
+    (s) => s.finishedAt == null && !s.deleted && !isRun(s) && Date.now() - s.startedAt < RESUME_WINDOW_MS,
   )
   const openName = openSession
-    ? isRun(openSession)
-      ? (openSession.run?.label ?? 'run')
-      : (dayList.find((d) => d.id === openSession.dayId)?.name ?? 'workout')
+    ? (dayList.find((d) => d.id === openSession.dayId)?.name ?? 'workout')
     : ''
 
   const stepWeek = (dir: -1 | 1) => {
@@ -189,23 +198,16 @@ export function Home() {
     setSelDow(null)
   }
 
-  function attempt(kind: 'lift' | 'run') {
-    const wantsDayId = kind === 'run' ? RUN_DAY_ID : liftDay?.id
-    if (openSession && (openSession.dayId !== wantsDayId || (openSession.scheduledDate ?? openSession.date) !== selDate)) {
-      setPending(kind)
+  function attempt() {
+    if (openSession && (openSession.dayId !== liftDay?.id || (openSession.scheduledDate ?? openSession.date) !== selDate)) {
+      setPending(true)
       return
     }
-    void proceed(kind)
+    void proceed()
   }
 
-  async function proceed(kind: 'lift' | 'run') {
-    setPending(null)
-    if (kind === 'run') {
-      if (!week || !slot?.run) return
-      const id = await startRun(week, slot, selDate)
-      if (id) navigate('/run')
-      return
-    }
+  async function proceed() {
+    setPending(false)
     if (!liftDay) return
     const ex = await db.exercises.where('dayId').equals(liftDay.id).sortBy('order')
     await startSession(liftDay, ex, {
@@ -216,37 +218,14 @@ export function Home() {
     navigate('/log')
   }
 
-  // The day, said once. The lift name leads when there is one; a pure run day is
-  // named by its own prescription; rest is rest.
-  const headline = liftDay?.name ?? slotSummary(slot, null)
-  const subline = isRest(slot)
-    ? 'Nothing scheduled.'
-    : run
-      ? liftDay
-        ? `then ${runLine(run)}`
-        : 'Zone 2'
-      : null
-
-  const doneLines: string[] = []
-  if (doneLift) doneLines.push(`${liftDay?.name ?? 'Workout'} done`)
-  if (doneRun?.run) {
-    const r = doneRun.run
-    doneLines.push(
-      `Run done${r.actualMin != null ? ` · ${r.actualMin} min` : ''}` +
-        `${r.actualMi != null ? ` · ${r.actualMi} mi` : ''}`,
-    )
-  }
   const doingAnotherDay = selDate !== todayKey
   const liftAction = doneLift
     ? `Repeat ${liftDay?.name ?? 'workout'}`
     : doingAnotherDay
       ? `Do ${liftDay?.name ?? 'workout'} today`
       : `Start ${liftDay?.name ?? 'workout'}`
-  const runAction = doneRun
-    ? 'Repeat run'
-    : doingAnotherDay
-      ? 'Do run today'
-      : `Start ${liftDay ? 'run' : run?.label ?? 'run'}`
+  // Mileage is only honest at easy pace; a fast session covers more.
+  const easyRun = run != null && (run.label === 'Easy Run' || run.label === 'Long Run')
 
   return (
     <div className="screen">
@@ -355,128 +334,109 @@ export function Home() {
                 : `${dowLabel(dow).toUpperCase()} · ${format(parseISO(selDate), 'MMM d').toUpperCase()}`}
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-              <div
-                style={{
-                  ...headlineStyle,
-                  color: isRest(slot) ? 'var(--color-sub)' : 'var(--color-text)',
-                }}
-              >
-                {headline}
-              </div>
-              {subline && (
+            {isRest(slot) && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                <div style={{ ...headlineStyle, color: 'var(--color-sub)' }}>Rest</div>
                 <div style={{ fontSize: 14, color: 'var(--color-sub)', lineHeight: 1.4 }}>
-                  {subline}
-                  {run?.strides && (
-                    <span style={{ color: 'var(--color-volt)' }}> · + strides</span>
+                  Nothing scheduled.
+                </div>
+              </div>
+            )}
+
+            {/* ── Lift: the part you start and log here ── */}
+            {liftDay && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <PartLabel color="var(--color-volt)" icon={<Dumbbell size={14} />}>LIFT</PartLabel>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={headlineStyle}>{liftDay.name}</div>
+                  {liftDay.focus && (
+                    <div style={{ fontSize: 14, color: 'var(--color-sub)', lineHeight: 1.4 }}>
+                      {liftDay.focus}
+                    </div>
                   )}
                 </div>
-              )}
-            </div>
 
-            {/* The plan, one tap away — the answer above shouldn't have to scroll
-                past it, but it's still worth a look before you start. */}
-            {liftDay && exercises.length > 0 && (
-              <div>
-                <button
-                  onClick={() => setOpenExDow(showEx ? null : dow)}
-                  className="tap"
-                  aria-expanded={showEx}
-                  style={{
-                    width: '100%',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 10,
-                    padding: '12px 14px',
-                    borderRadius: 14,
-                    border: '1px solid var(--color-pill-border)',
-                    background: 'transparent',
-                    color: 'var(--color-sub)',
-                    fontSize: 13.5,
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                  }}
-                >
-                  {exercises.length} exercises
-                  <span style={{ color: 'var(--color-dim)', display: 'flex' }}>
-                    <ChevronDown open={showEx} />
-                  </span>
-                </button>
+                {exercises.length > 0 && (
+                  <div>
+                    <button
+                      onClick={() => setOpenExDow(showEx ? null : dow)}
+                      className="tap"
+                      aria-expanded={showEx}
+                      style={{
+                        width: '100%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 10,
+                        padding: '12px 14px',
+                        borderRadius: 14,
+                        border: '1px solid var(--color-pill-border)',
+                        background: 'transparent',
+                        color: 'var(--color-sub)',
+                        fontSize: 13.5,
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {exercises.length} exercises
+                      <span style={{ color: 'var(--color-dim)', display: 'flex' }}>
+                        <ChevronDown open={showEx} />
+                      </span>
+                    </button>
 
-                {showEx && (
-                  <ul style={{ listStyle: 'none', padding: '4px 2px 0', margin: 0 }}>
-                    {exercises.map((ex, i) => (
-                      <li
-                        key={ex.id}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'baseline',
-                          gap: 12,
-                          padding: '9px 0',
-                          borderTop: i > 0 ? '1px solid var(--color-separator)' : 'none',
-                        }}
-                      >
-                        <span style={{ fontSize: 14, lineHeight: 1.3, flex: 1, minWidth: 0 }}>
-                          {ex.name}
-                        </span>
-                        <span
-                          style={{
-                            fontSize: 12,
-                            color: 'var(--color-dim)',
-                            fontFamily: 'var(--font-mono)',
-                            textAlign: 'right',
-                            flexShrink: 0,
-                          }}
-                        >
-                          <ExerciseSummary ex={ex} />
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
+                    {showEx && (
+                      <ul style={{ listStyle: 'none', padding: '4px 2px 0', margin: 0 }}>
+                        {exercises.map((ex, i) => (
+                          <li
+                            key={ex.id}
+                            style={{
+                              display: 'flex',
+                              alignItems: 'baseline',
+                              gap: 12,
+                              padding: '9px 0',
+                              borderTop: i > 0 ? '1px solid var(--color-separator)' : 'none',
+                            }}
+                          >
+                            <span style={{ fontSize: 14, lineHeight: 1.3, flex: 1, minWidth: 0 }}>
+                              {ex.name}
+                            </span>
+                            <span
+                              style={{
+                                fontSize: 12,
+                                color: 'var(--color-dim)',
+                                fontFamily: 'var(--font-mono)',
+                                textAlign: 'right',
+                                flexShrink: 0,
+                              }}
+                            >
+                              <ExerciseSummary ex={ex} />
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
                 )}
-              </div>
-            )}
 
-            {doneLines.map((line) => (
-              <div
-                key={line}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 7,
-                  fontSize: 13.5,
-                  fontWeight: 620,
-                  color: 'var(--color-volt)',
-                }}
-              >
-                <Check size={14} strokeWidth={3} />
-                {line}
-              </div>
-            ))}
+                {doneLift && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 7,
+                      fontSize: 13.5,
+                      fontWeight: 620,
+                      color: 'var(--color-volt)',
+                    }}
+                  >
+                    <Check size={14} strokeWidth={3} />
+                    {liftDay.name} done
+                  </div>
+                )}
 
-            {doneRun?.run && hrFlagged(doneRun.run) && (
-              <span
-                style={{
-                  alignSelf: 'flex-start',
-                  fontSize: 11.5,
-                  fontWeight: 640,
-                  color: AMBER,
-                  background: 'rgba(245,185,69,.1)',
-                  border: '1px solid rgba(245,185,69,.28)',
-                  borderRadius: 20,
-                  padding: '3px 9px',
-                }}
-              >
-                Ran {doneRun.run.avgHr} avg · above cap {doneRun.run.hrHardCap}
-              </span>
-            )}
-
-            {editMode && !isRest(slot) && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
-                {liftDay && (
+                {editMode && (
                   <button
-                    onClick={() => attempt('lift')}
+                    onClick={attempt}
                     aria-label={`Start ${liftDay.name}`}
                     className="tap press"
                     style={doneLift ? quietButton : voltButton}
@@ -485,16 +445,55 @@ export function Home() {
                     {liftAction}
                   </button>
                 )}
-                {run && (
-                  <button
-                    onClick={() => attempt('run')}
-                    aria-label={`Start ${run.label}`}
-                    className="tap press"
-                    style={liftDay || doneRun ? quietButton : voltButton}
+              </div>
+            )}
+
+            {/* ── Run: the plan only. It is tracked on the watch, not here. ── */}
+            {run && (
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 12,
+                  ...(liftDay
+                    ? { paddingTop: 16, borderTop: '1px solid var(--color-separator)' }
+                    : {}),
+                }}
+              >
+                <PartLabel color="var(--color-run)" icon={<Footprints size={14} />}>
+                  {liftDay ? 'RUN · AFTER THE LIFT' : 'RUN'}
+                </PartLabel>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+                  <div style={liftDay ? { ...headlineStyle, fontSize: 28 } : headlineStyle}>
+                    {run.label}
+                  </div>
+                  <div
+                    className="display tabular-nums"
+                    style={{ fontSize: liftDay ? 22 : 26, fontWeight: 700, lineHeight: 1, color: 'var(--color-run)' }}
                   >
-                    <Play size={15} strokeWidth={2.5} fill="currentColor" />
-                    {runAction}
-                  </button>
+                    {run.durationMin} min
+                  </div>
+                </div>
+                <div style={{ fontSize: 14, color: 'var(--color-sub)', lineHeight: 1.4 }}>
+                  {effortLabel(run.label)} · {zoneLabel(run.hrZoneMin, run.hrZoneMax)} bpm
+                  {easyRun && ` · about ${milesLabel(run.durationMin)}`}
+                </div>
+                {(run.notes || run.strides) && (
+                  <div
+                    style={{
+                      padding: '12px 14px',
+                      borderRadius: 14,
+                      background: 'var(--color-run-tint)',
+                      fontSize: 13.5,
+                      lineHeight: 1.55,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 6,
+                    }}
+                  >
+                    {run.notes && <div>{run.notes}</div>}
+                    {run.strides && <div>Then {STRIDES_NOTE[0]} {STRIDES_NOTE[1]}</div>}
+                  </div>
                 )}
               </div>
             )}
@@ -528,8 +527,8 @@ export function Home() {
           </div>
           <div style={{ fontSize: 13.5, color: 'var(--color-sub)', lineHeight: 1.5 }}>
             {weekList.length
-              ? "Today falls outside the program. Re-anchor it in the Library, or just pick a day below."
-              : 'Install the base phase from the Library to get the scheduled week. Until then, pick a day.'}
+              ? "Today falls outside the program. Re-anchor it in the Plan tab, or just pick a day below."
+              : 'Install the run block from the Plan tab to get the scheduled week. Until then, pick a day.'}
           </div>
           {editMode && dayList.length > 0 && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
@@ -568,7 +567,7 @@ export function Home() {
       {/* Guard: starting something new discards a session still in progress */}
       {pending && (
         <div
-          onClick={() => setPending(null)}
+          onClick={() => setPending(false)}
           style={{
             position: 'fixed',
             inset: 0,
@@ -604,7 +603,7 @@ export function Home() {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 9, marginTop: 14 }}>
               <button
-                onClick={() => void proceed(pending)}
+                onClick={() => void proceed()}
                 style={{
                   height: 50,
                   borderRadius: 25,
@@ -619,7 +618,7 @@ export function Home() {
                 Discard &amp; start
               </button>
               <button
-                onClick={() => setPending(null)}
+                onClick={() => setPending(false)}
                 style={{
                   height: 50,
                   borderRadius: 25,

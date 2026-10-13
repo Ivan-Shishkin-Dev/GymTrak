@@ -55,14 +55,13 @@ export function Log() {
   const [focusMode, setFocusMode] = useState(true)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
 
-  // The single open session, if it's a lift. A run lives on /run — it has no day
-  // and no sets, so letting one through here renders a blank screen.
+  // The single open session, if it's a lift. Runs are no longer tracked here, but
+  // an old open one has no day and no sets, so letting it through renders blank.
   const open = useLiveQuery(
     () => db.sessions.filter((s) => s.finishedAt == null && !s.deleted).toArray(),
     [],
   )
   const session = open?.find((s) => !isRun(s))
-  const openRun = open?.find(isRun)
 
   const sets = useLiveQuery(
     () =>
@@ -91,13 +90,11 @@ export function Log() {
     return () => clearInterval(t)
   }, [])
 
-  // No open lift (opened /log directly, or just finished) → leave. If the thing
-  // that's actually running is a run, hand over to /run rather than dropping the
-  // user Home in the middle of it.
+  // No open lift (opened /log directly, or just finished) → leave.
   useEffect(() => {
     if (open === undefined || session) return
-    navigate(openRun ? '/run' : '/', { replace: true })
-  }, [open, session, openRun, navigate])
+    navigate('/', { replace: true })
+  }, [open, session, navigate])
 
   if (!session || !day) return null
 
@@ -866,7 +863,7 @@ export function Log() {
         </div>
       )}
       {confirmDiscard && (
-        <DiscardDialog title={`Discard ${day.name}?`} body="This removes the unfinished workout and its set changes. Completed history and the plan stay untouched." onCancel={() => setConfirmDiscard(false)} onConfirm={() => void proceedDiscard()} />
+        <DiscardDialog title={`Discard ${day.name}?`} body="This removes the unfinished workout and its set changes. Finished workouts and the plan stay untouched." onCancel={() => setConfirmDiscard(false)} onConfirm={() => void proceedDiscard()} />
       )}
     </div>
   )

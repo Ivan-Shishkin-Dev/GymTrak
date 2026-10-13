@@ -66,7 +66,7 @@ export function ScheduleEditor({ weeks, days }: { weeks: ProgramWeek[]; days: Da
 
       {!editable && (
         <div style={{ marginTop: 12, borderRadius: 10, background: 'rgba(245,185,69,.08)', padding: '10px 11px', color: 'var(--color-amber)', fontSize: 12.5 }}>
-          Past weeks are locked so completed history stays truthful. Duplicate this week to reuse it.
+          Past weeks are locked. Duplicate this week to reuse it.
         </div>
       )}
 
@@ -113,7 +113,7 @@ export function ScheduleEditor({ weeks, days }: { weeks: ProgramWeek[]; days: Da
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 8 }}>
                   <label style={labelStyle}>Type
                     <select value={slot.run.label} disabled={!editable} onChange={(event) => setRun(dow, { label: event.target.value as RunPrescription['label'] })} style={fieldStyle}>
-                      <option>Easy Run</option><option>Long Run</option>
+                      <option>Easy Run</option><option>Long Run</option><option>Intervals</option><option>Tempo Run</option><option>Time Trial</option>
                     </select>
                   </label>
                   <NumberField label="Minutes" value={slot.run.durationMin} disabled={!editable} onChange={(value) => setRun(dow, { durationMin: value })} />
