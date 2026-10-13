@@ -17,7 +17,8 @@ export const DaySchema = z.object({
   name: z.string(), // 'Upper C'
   focus: z.string(), // 'Shoulder lean'
   slug: z.string().optional(), // 'upper-a' — stable identity for the program installer.
-  splitRevision: z.number().int().optional(), // persisted, synced workout-template migration version
+  splitRevision: z.number().int().optional(), // frozen at 1; older app versions key off it
+  planRevision: z.number().int().optional(), // persisted, synced plan migration version
   // Matching on `name` would break the moment a day is renamed, so the installer
   // keys off this instead. Absent on the six legacy seed days, which is what makes
   // "archive everything without a slug" a safe, idempotent one-shot.
@@ -85,7 +86,7 @@ export type Exercise = z.infer<typeof ExerciseSchema>
 export const DowSchema = z.enum(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'])
 export type Dow = z.infer<typeof DowSchema>
 
-export const RunLabelSchema = z.enum(['Easy Run', 'Long Run'])
+export const RunLabelSchema = z.enum(['Easy Run', 'Long Run', 'Intervals', 'Tempo Run', 'Time Trial'])
 export type RunLabel = z.infer<typeof RunLabelSchema>
 
 /** Whether the run hangs off a lift or stands on its own. */
@@ -116,7 +117,7 @@ export const ProgramSlotSchema = z.object({
 export type ProgramSlot = z.infer<typeof ProgramSlotSchema>
 
 /**
- * One week of the program. `id` IS the global week number (9..16 for Base), which
+ * One week of the program. `id` IS the global week number (1..8), which
  * makes seeding an idempotent `bulkPut` — a re-run physically cannot duplicate a
  * week. `phase` is a plain string, not an enum, so weeks 1–8 and 17–28 can be
  * added later without a type edit or a snapshot break.

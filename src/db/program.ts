@@ -4,9 +4,12 @@ import { dateKey } from '@/lib/format'
 import { isEditMode, purgeLegacyRecovery } from '@/lib/sync'
 import { withoutLegacySplit } from './legacy'
 import { dayRank } from '@/lib/rotation'
+import { mondayKey } from '@/lib/program'
 import {
   BASE_FIRST_WEEK,
   BASE_TEMPLATES,
+  PLAN_REVISION,
+  SPLIT_REVISION,
   baseWeeks,
   templateExercises,
   upcomingMonday,
@@ -24,7 +27,7 @@ export {
 export type { TemplateSlug } from './templates'
 
 /**
- * The installer that puts the split and its Base Phase (weeks 9–16) into a
+ * The installer that puts the split and its run block (weeks 1–8) into a
  * database that already has data. The templates themselves live in
  * `templates.ts`, shared with the first-launch seed.
  *
@@ -108,9 +111,50 @@ export async function applyBalancedSplit(): Promise<void> {
       const kept = new Set(desired.map((exercise) => exercise.id))
       await db.exercises.bulkDelete(existing.filter((exercise) => !kept.has(exercise.id)).map((exercise) => exercise.id))
       await db.exercises.bulkPut(desired)
-      await db.days.update(day!.id, { focus: template.focus, splitRevision: 1, updatedAt: now })
+      await db.days.update(day!.id, { focus: template.focus, splitRevision: SPLIT_REVISION, planRevision: PLAN_REVISION, updatedAt: now })
     }
   })
+}
+
+/** Renumber each day's exercises 1..n, so a move out of a day leaves no hole. */
+async function closeOrderGaps(days: Day[]): Promise<void> {
+  const now = Date.now()
+  for (const day of days) {
+    const rows = await db.exercises.where('dayId').equals(day.id).sortBy('order')
+    const moved = rows.filter((exercise, index) => exercise.order !== index + 1)
+    if (moved.length) {
+      await db.exercises.bulkPut(rows.map((exercise, index) =>
+        exercise.order === index + 1 ? exercise : { ...exercise, order: index + 1, updatedAt: now }))
+    }
+  }
+}
+
+/** Plan revision 2 → 3: each upper's shoulder press opens the matching lower day. */
+async function moveShoulderPressToLowers(days: Day[]): Promise<void> {
+  const ids = new Set(days.map((day) => day.id))
+  const sessions = await db.sessions.toArray()
+  if (sessions.some((session) => ids.has(session.dayId) && !session.deleted && session.finishedAt == null)) {
+    throw new Error('Finish or discard your open workout, then reload to update the plan.')
+  }
+  const now = Date.now()
+  for (const [from, to] of [['upper-a', 'lower-a'], ['upper-b', 'lower-b']] as const) {
+    const upper = days.find((day) => day.slug === from)!
+    const lower = days.find((day) => day.slug === to)!
+    const lowerRows = await db.exercises.where('dayId').equals(lower.id).sortBy('order')
+    const press = (await db.exercises.where('dayId').equals(upper.id).toArray())
+      .find((exercise) => exercise.name === 'Shoulder Press')
+    if (press && !lowerRows.some((exercise) => exercise.name === press.name)) {
+      await db.exercises.bulkPut(
+        [{ ...press, dayId: lower.id }, ...lowerRows].map((exercise, index) => ({ ...exercise, order: index + 1, updatedAt: now })),
+      )
+    }
+    const focus = BASE_TEMPLATES.find((template) => template.slug === to)!.focus
+    await db.days.update(lower.id, { focus, updatedAt: now })
+  }
+  for (const day of days) {
+    day.planRevision = PLAN_REVISION
+    await db.days.update(day.id, { planRevision: PLAN_REVISION, updatedAt: now })
+  }
 }
 
 /** Apply the user's requested replacement once, after sync and edit authorization. */
@@ -121,8 +165,22 @@ export async function migrateRequestedSplit(): Promise<void> {
   await db.transaction('rw', db.tables, async () => {
     const days = await db.days.toArray()
     const current = days.filter((day) => BASE_TEMPLATES.some((template) => template.slug === day.slug))
+    // The first cut of this plan marked itself in `splitRevision`. Those days
+    // already have the plan, so they only need their markers moved across.
+    const mismarked = current.filter((day) => day.planRevision == null && day.splitRevision === 2)
+    for (const day of mismarked) {
+      day.splitRevision = SPLIT_REVISION
+      day.planRevision = 2
+      await db.days.update(day.id, { splitRevision: SPLIT_REVISION, planRevision: 2, updatedAt: Date.now() })
+    }
+    // Revision 3 only moves the shoulder press. Re-applying the whole plan would
+    // bring back exercises trimmed since revision 2 and restart the run block.
+    if (BASE_TEMPLATES.every((template) => current.some((day) => day.slug === template.slug && day.planRevision === 2))) {
+      await moveShoulderPressToLowers(current)
+    }
+    await closeOrderGaps(current)
     const needsUpdate = BASE_TEMPLATES.some((template) =>
-      !current.some((day) => day.slug === template.slug && day.splitRevision === 1))
+      !current.some((day) => day.slug === template.slug && day.planRevision === PLAN_REVISION))
     const legacy = days.filter((day) => !day.slug && day.id >= 1 && day.id <= 6)
     if (!needsUpdate && !legacy.length) return
     if (needsUpdate) {
@@ -147,9 +205,13 @@ export async function migrateRequestedSplit(): Promise<void> {
         }
       }
       await applyBalancedSplit()
-      if (await db.programWeeks.count() === 0) {
-        await db.programWeeks.bulkAdd(baseWeeks(dateKey(upcomingMonday(new Date(now))), ids, now))
-      }
+      // A new revision replaces the block in progress, so week 1 is the week
+      // you are already in. With no block yet, it starts on the coming Monday.
+      const start = await db.programWeeks.count() === 0
+        ? dateKey(upcomingMonday(new Date(now)))
+        : mondayKey(new Date(now))
+      await db.programWeeks.clear()
+      await db.programWeeks.bulkAdd(baseWeeks(start, ids, now))
     }
     // Already scrubbed recovery above; this call performs only database work.
     await deleteLegacySplitRecords()

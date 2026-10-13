@@ -2,7 +2,6 @@ import { addDays, isMonday, nextMonday, parseISO } from 'date-fns'
 import { uid } from './db'
 import { dateKey } from '@/lib/format'
 import type {
-  Dow,
   Exercise,
   LoadType,
   ProgramSlot,
@@ -13,7 +12,7 @@ import type {
 
 /**
  * The split and its program, as pure data: the four consolidated lift days and
- * the eight Base Phase weeks (9–16) that schedule them.
+ * the eight run-block weeks (1–8) that schedule them.
  *
  * Two consumers, both in this folder: `seed.ts` builds a fresh database from
  * these on first launch, and `program.ts` installs them into a database that
@@ -31,8 +30,21 @@ export type TemplateSpec = {
   exercises: ExerciseSpec[]
 }
 
+/**
+ * Bumped whenever the templates or the weeks below change shape. A saved day
+ * whose `planRevision` is behind this gets the current plan applied once.
+ *
+ * It is a separate field from `splitRevision`, which stays at 1 for good: app
+ * versions from before this one re-apply their own templates to any day whose
+ * `splitRevision` is not exactly 1, so moving that number would have an old
+ * install on another device undo the plan every time it synced.
+ */
+export const PLAN_REVISION = 3
+export const SPLIT_REVISION = 1
+
 /*
- * The four consolidated lift templates.
+ * The four consolidated lift templates. Shoulder press and arms open both
+ * lower days, ahead of the leg work.
  *
  * These are written as literal SetRow[] and are NOT passed through
  * `canonicalLoad`. One SetRow is exactly one set: the plan's `·` separator is the
@@ -53,17 +65,17 @@ export const BASE_TEMPLATES: TemplateSpec[] = [
       { name: 'T-Bar', loadType: 'plates', setRows: [{ weight: '4 pl', reps: '× 6' }, { weight: '4 pl', reps: '× 6' }] },
       { name: 'Pec Dec', loadType: 'machine', setRows: [{ weight: '220 lb', reps: '× 6' }, { weight: '210 lb', reps: '× 6' }] },
       { name: 'Lat Pulldown Mach', loadType: 'machine', setRows: [{ weight: '220 lb', reps: '× 6' }, { weight: '205 lb', reps: '× 6' }] },
-      { name: 'Shoulder Press', loadType: 'machine', setRows: [{ weight: '130 lb', reps: '× 6' }, { weight: '120 lb', reps: '× 6' }] },
       { name: 'Lateral Raise', loadType: 'machine', setRows: [{ weight: '50 lb', reps: '× 6' }, { weight: '45 lb', reps: '× 6' }] },
-      { name: 'Incline Curl', loadType: 'machine', setRows: [{ weight: '12', reps: '× 6' }, { weight: '11', reps: '× 6' }] },
-      { name: 'Single-Arm Tricep', loadType: 'weight', setRows: [{ weight: '85 lb', reps: '× 6' }, { weight: '75 lb', reps: '× 9' }] },
     ],
   },
   {
     slug: 'lower-a',
     name: 'Lower A',
-    focus: 'Quad',
+    focus: 'Shoulders, arms / quad',
     exercises: [
+      { name: 'Shoulder Press', loadType: 'machine', setRows: [{ weight: '130 lb', reps: '× 6' }, { weight: '120 lb', reps: '× 6' }] },
+      { name: 'Incline Curl', loadType: 'machine', setRows: [{ weight: '12', reps: '× 6' }, { weight: '11', reps: '× 6' }] },
+      { name: 'Single-Arm Tricep', loadType: 'weight', setRows: [{ weight: '85 lb', reps: '× 6' }, { weight: '75 lb', reps: '× 9' }] },
       { name: 'Leg Press', loadType: 'plates', setRows: [{ weight: '5 pl', reps: '× 7' }, { weight: '4 pl + 25', reps: '× 6' }] },
       { name: 'Leg Curl', loadType: 'machine', setRows: [{ weight: '170 lb', reps: '× 10' }, { weight: '130 lb', reps: '× 6' }] },
       { name: 'Leg Extension', loadType: 'weight', setRows: [{ weight: '250 lb', reps: '× 5' }, { weight: '230 lb', reps: '× 5' }] },
@@ -83,17 +95,17 @@ export const BASE_TEMPLATES: TemplateSpec[] = [
       { name: 'T-Bar', loadType: 'plates', setRows: [{ weight: '4 pl', reps: '× 6' }, { weight: '4 pl', reps: '× 6' }] },
       { name: 'Pec Dec', loadType: 'machine', setRows: [{ weight: '220 lb', reps: '× 6' }, { weight: '210 lb', reps: '× 6' }] },
       { name: 'Lat Pulldown Mach', loadType: 'machine', setRows: [{ weight: '220 lb', reps: '× 6' }, { weight: '205 lb', reps: '× 6' }] },
-      { name: 'Shoulder Press', loadType: 'machine', setRows: [{ weight: '130 lb', reps: '× 6' }, { weight: '120 lb', reps: '× 6' }] },
       { name: 'Lateral Raise', loadType: 'machine', setRows: [{ weight: '50 lb', reps: '× 6' }, { weight: '45 lb', reps: '× 6' }] },
-      { name: 'Incline Curl', loadType: 'machine', setRows: [{ weight: '12', reps: '× 6' }, { weight: '11', reps: '× 6' }] },
-      { name: 'Single-Arm Tricep', loadType: 'weight', setRows: [{ weight: '85 lb', reps: '× 6' }, { weight: '75 lb', reps: '× 9' }] },
     ],
   },
   {
     slug: 'lower-b',
     name: 'Lower B',
-    focus: 'Hamstring',
+    focus: 'Shoulders, arms / hamstring',
     exercises: [
+      { name: 'Shoulder Press', loadType: 'machine', setRows: [{ weight: '130 lb', reps: '× 6' }, { weight: '120 lb', reps: '× 6' }] },
+      { name: 'Incline Curl', loadType: 'machine', setRows: [{ weight: '12', reps: '× 6' }, { weight: '11', reps: '× 6' }] },
+      { name: 'Single-Arm Tricep', loadType: 'weight', setRows: [{ weight: '85 lb', reps: '× 6' }, { weight: '75 lb', reps: '× 9' }] },
       { name: 'SLDL', loadType: 'weight', setRows: [{ weight: '335 lb', reps: '× 5' }, { weight: '315 lb', reps: '× 4' }] },
       { name: 'Leg Curl', loadType: 'machine', setRows: [{ weight: '170 lb', reps: '× 10' }, { weight: '130 lb', reps: '× 6' }] },
       { name: 'Leg Extension', loadType: 'weight', setRows: [{ weight: '250 lb', reps: '× 5' }, { weight: '230 lb', reps: '× 5' }] },
@@ -126,50 +138,101 @@ export function templateExercises(
   }))
 }
 
-/* ── Weeks 9–16 ───────────────────────────────────────────────────────────── */
+/* ── Weeks 1–8 ────────────────────────────────────────────────────────────── */
 
-export const BASE_FIRST_WEEK = 9
-export const BASE_LAST_WEEK = 16
+export const BASE_FIRST_WEEK = 1
+export const BASE_LAST_WEEK = 8
 
-/** Run minutes per week, in [mon, wed, thu, sat] order. */
-const RUN_MIN: Record<number, [number, number, number, number]> = {
-  9: [25, 30, 25, 45],
-  10: [25, 30, 25, 50],
-  11: [30, 35, 25, 55],
-  12: [20, 25, 20, 40], // deload
-  13: [30, 35, 25, 60],
-  14: [30, 35, 30, 65],
-  15: [30, 40, 30, 70],
-  16: [25, 30, 20, 50], // deload
+/** Zone 2 for easy and long runs. */
+const EASY_HR = { hrZoneMin: 120, hrZoneMax: 140, hrHardCap: 145 }
+/** Session average for intervals and tempo, warm-up and recoveries included. */
+const QUALITY_HR = { hrZoneMin: 145, hrZoneMax: 175, hrHardCap: 185 }
+const RACE_HR = { hrZoneMin: 165, hrZoneMax: 190, hrHardCap: 200 }
+
+const HR: Record<RunPrescription['label'], typeof EASY_HR> = {
+  'Easy Run': EASY_HR,
+  'Long Run': EASY_HR,
+  Intervals: QUALITY_HR,
+  'Tempo Run': QUALITY_HR,
+  'Time Trial': RACE_HR,
 }
 
-const DELOAD_WEEKS = new Set([12, 16])
+/*
+ * Paces come off the 33:26 5K (10:46 /mi): reps a little quicker than that,
+ * tempo a little slower. Each workout's parts add up to its `min`.
+ */
+const FAST = 'Fast is about 10:00 /mi.'
+const STEADY = 'Steady is about 11:20 /mi, a few words at a time.'
 
-/** Zone 2 for every run in this phase. */
-const HR = { hrZoneMin: 120, hrZoneMax: 140, hrHardCap: 145 }
+type RunSpec = {
+  label: RunPrescription['label']
+  min: number
+  notes?: string
+  strides?: boolean
+}
 
-/** Strides on Wed and Sat, weeks 13–16 only. */
-const hasStrides = (week: number, dow: Dow): boolean =>
-  week >= 13 && (dow === 'wed' || dow === 'sat')
+const easy = (min: number, strides = false): RunSpec => ({ label: 'Easy Run', min, strides })
+const long = (min: number): RunSpec => ({ label: 'Long Run', min })
 
-const run = (
-  week: number,
-  dow: Dow,
-  label: RunPrescription['label'],
-  timing: RunPrescription['timing'],
-  durationMin: number,
-): RunPrescription => ({
-  label,
+/**
+ * Three runs a week: Monday easy after the lift, Wednesday the fast one,
+ * Saturday the long one. Speed comes from Wednesday, distance from Saturday,
+ * which grows five minutes a week. Weeks 4 and 8 back off; week 8 ends on a 5K
+ * to measure the block.
+ */
+const RUNS: Record<number, { mon: RunSpec; wed: RunSpec; sat: RunSpec }> = {
+  1: {
+    mon: easy(20),
+    wed: { label: 'Intervals', min: 30, notes: `8 min easy, 6 × 1 min fast / 2 min walk-jog, 4 min easy. ${FAST}` },
+    sat: long(40),
+  },
+  2: {
+    mon: easy(25),
+    wed: { label: 'Intervals', min: 35, notes: `8 min easy, 8 × 1 min fast / 2 min walk-jog, 3 min easy. ${FAST}` },
+    sat: long(45),
+  },
+  3: {
+    mon: easy(25),
+    wed: { label: 'Tempo Run', min: 35, notes: `10 min easy, 2 × 8 min steady with 3 min jog between, 6 min easy. ${STEADY}` },
+    sat: long(50),
+  },
+  4: { mon: easy(20), wed: easy(25, true), sat: long(35) }, // deload
+  5: {
+    mon: easy(30),
+    wed: { label: 'Intervals', min: 40, notes: `10 min easy, 5 × 3 min fast / 2 min walk-jog, 5 min easy. ${FAST}` },
+    sat: long(55),
+  },
+  6: {
+    mon: easy(30),
+    wed: { label: 'Tempo Run', min: 40, notes: `10 min easy, 20 min steady, 10 min easy. ${STEADY}` },
+    sat: long(60),
+  },
+  7: {
+    mon: easy(30),
+    wed: { label: 'Intervals', min: 45, notes: `10 min easy, 6 × 3 min fast / 2 min walk-jog, 5 min easy. ${FAST}` },
+    sat: long(65),
+  },
+  8: {
+    mon: easy(20),
+    wed: easy(25, true),
+    sat: { label: 'Time Trial', min: 45, notes: '10 min easy, then a 5K as fast as you can hold. The time to beat is 33:26.' },
+  }, // deload, then the test
+}
+
+const DELOAD_WEEKS = new Set([4, 8])
+
+const run = (spec: RunSpec, timing: RunPrescription['timing']): RunPrescription => ({
+  label: spec.label,
   timing,
-  durationMin,
-  ...HR,
-  strides: hasStrides(week, dow),
-  notes: null, // the strides copy is derived from `strides`, not duplicated per week
+  durationMin: spec.min,
+  ...HR[spec.label],
+  strides: spec.strides ?? false,
+  notes: spec.notes ?? null, // the strides copy is derived from `strides`, not duplicated per week
 })
 
 /**
- * The eight Base Phase weeks, anchored to `startMonday` (the Monday of week 9).
- * Every week has the same shape; only the run durations change.
+ * The eight run-block weeks, anchored to `startMonday` (the Monday of week 1).
+ * Every week has the same shape; only the runs change.
  */
 export function baseWeeks(
   startMonday: string,
@@ -178,19 +241,19 @@ export function baseWeeks(
 ): ProgramWeek[] {
   const weeks: ProgramWeek[] = []
   for (let n = BASE_FIRST_WEEK; n <= BASE_LAST_WEEK; n++) {
-    const [mon, wed, thu, sat] = RUN_MIN[n]
+    const { mon, wed, sat } = RUNS[n]
     const slots: ProgramSlot[] = [
-      { dow: 'mon', liftDayId: ids['upper-a'], run: run(n, 'mon', 'Easy Run', 'after-lift', mon) },
+      { dow: 'mon', liftDayId: ids['upper-a'], run: run(mon, 'after-lift') },
       { dow: 'tue', liftDayId: ids['lower-a'], run: null },
-      { dow: 'wed', liftDayId: null, run: run(n, 'wed', 'Easy Run', 'standalone', wed) },
-      { dow: 'thu', liftDayId: ids['upper-b'], run: run(n, 'thu', 'Easy Run', 'after-lift', thu) },
+      { dow: 'wed', liftDayId: null, run: run(wed, 'standalone') },
+      { dow: 'thu', liftDayId: ids['upper-b'], run: null },
       { dow: 'fri', liftDayId: ids['lower-b'], run: null },
-      { dow: 'sat', liftDayId: null, run: run(n, 'sat', 'Long Run', 'standalone', sat) },
+      { dow: 'sat', liftDayId: null, run: run(sat, 'standalone') },
       { dow: 'sun', liftDayId: null, run: null }, // rest
     ]
     weeks.push({
       id: n,
-      phase: n <= 12 ? 'base-1' : 'base-2',
+      phase: n <= 4 ? 'build-1' : 'build-2',
       startDate: dateKey(addDays(parseISO(startMonday), (n - BASE_FIRST_WEEK) * 7)),
       isDeload: DELOAD_WEEKS.has(n),
       slots,

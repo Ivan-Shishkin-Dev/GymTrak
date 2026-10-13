@@ -2,6 +2,8 @@ import { db } from './db'
 import { dateKey } from '@/lib/format'
 import {
   BASE_TEMPLATES,
+  PLAN_REVISION,
+  SPLIT_REVISION,
   baseWeeks,
   templateExercises,
   upcomingMonday,
@@ -14,7 +16,7 @@ import type { Day, Exercise } from './types'
  * already has rows it does nothing, so reopening the app never duplicates data.
  *
  * Seeds the split as it is trained today — the four consolidated lift days from
- * `templates.ts` — and the Base Phase weeks anchored to the upcoming Monday, so a
+ * `templates.ts` — and the run-block weeks anchored to the upcoming Monday, so a
  * fresh install opens on a scheduled week rather than an empty Home. The four
  * days carry their template `slug`, which is what lets a later "Install base
  * phase" recognise them instead of creating duplicates.
@@ -31,7 +33,7 @@ export async function seedIfEmpty(): Promise<void> {
   BASE_TEMPLATES.forEach((t, i) => {
     const id = i + 1
     ids[t.slug] = id
-    days.push({ id, order: id, name: t.name, focus: t.focus, slug: t.slug, splitRevision: 1, updatedAt: now })
+    days.push({ id, order: id, name: t.name, focus: t.focus, slug: t.slug, splitRevision: SPLIT_REVISION, planRevision: PLAN_REVISION, updatedAt: now })
     exercises.push(...templateExercises(t, id, now))
   })
   const weeks = baseWeeks(dateKey(upcomingMonday(new Date(now))), ids, now)

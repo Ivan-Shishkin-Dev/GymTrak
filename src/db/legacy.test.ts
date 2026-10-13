@@ -43,7 +43,7 @@ it('automatically replaces a legacy-only install once and preserves later plan e
   await migrateRequestedSplit()
   const days = await db.days.toArray()
   expect(days.map((day) => day.slug)).toEqual(['upper-a', 'lower-a', 'upper-b', 'lower-b'])
-  expect(days.every((day) => day.splitRevision === 1)).toBe(true)
+  expect(days.every((day) => day.splitRevision === 1 && day.planRevision === 3)).toBe(true)
   expect(await db.programWeeks.count()).toBe(8)
   const exercise = (await db.exercises.toArray())[0]
   await db.exercises.update(exercise.id, { name: 'My custom exercise', weight: '123 lb' })
