@@ -18,7 +18,7 @@ import type { Day, Exercise, ProgramWeek, Session, WorkoutSet } from '@/db/types
  *     is the real lock — the UI gating below is just UX.
  *
  * "Edit mode" = the user proved they're Ivan (entered the password). The password
- * is held in sessionStorage so it survives reloads in the same tab and rides along
+ * is kept in localStorage, so a device stays unlocked until "lock" is tapped, and rides along
  * on every save. Newest snapshot wins (last-write-wins by `updated_at`).
  */
 
@@ -77,7 +77,7 @@ export type SyncState = {
 
 function readPw(): string | null {
   try {
-    return sessionStorage.getItem(PW_KEY)
+    return localStorage.getItem(PW_KEY) ?? sessionStorage.getItem(PW_KEY)
   } catch {
     return null
   }
@@ -440,6 +440,7 @@ async function subscribeRealtime(): Promise<void> {
 
 function clearPassword(): void {
   try {
+    localStorage.removeItem(PW_KEY)
     sessionStorage.removeItem(PW_KEY)
   } catch {
     /* ignore */
@@ -460,7 +461,7 @@ export async function enterEditMode(
   if (!data) return { ok: false, error: 'Wrong code.' }
 
   try {
-    sessionStorage.setItem(PW_KEY, pw)
+    localStorage.setItem(PW_KEY, pw)
   } catch {
     /* ignore */
   }
