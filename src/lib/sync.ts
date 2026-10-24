@@ -1,7 +1,8 @@
 import { useSyncExternalStore } from 'react'
 import { db } from '@/db/db'
 import { seedIfEmpty } from '@/db/seed'
-import { supabase, isSupabaseConfigured } from './supabase'
+import type { RealtimeChannel } from '@supabase/supabase-js'
+import { getSupabase, isSupabaseConfigured } from './supabase'
 import type { Day, Exercise, ProgramWeek, Session, WorkoutSet } from '@/db/types'
 
 /**
@@ -146,7 +147,7 @@ let dirty = false // local edits not yet pushed
 let cursor = 0 // updated_at of the snapshot currently reflected locally (in-memory)
 let hasCloudRow = false
 let pushTimer: ReturnType<typeof setTimeout> | null = null
-let channel: ReturnType<NonNullable<typeof supabase>['channel']> | null = null
+let channel: RealtimeChannel | null = null
 
 /* ── Snapshot serialize / apply ────────────────────────────────────────────── */
 
@@ -250,7 +251,9 @@ async function hasRecentOpenSession(): Promise<boolean> {
 /** Push the whole local DB up via the password-checked RPC. No-ops unless in edit mode. */
 async function push(): Promise<void> {
   const pw = readPw()
-  if (!supabase || !editMode || !pw) return
+  if (!editMode || !pw) return
+  const supabase = await getSupabase()
+  if (!supabase) return
   setStatus('syncing')
   const data = await serialize()
   saveRecoverySnapshot(data)
@@ -294,6 +297,7 @@ async function push(): Promise<void> {
 
 /** Adopt the server snapshot if it's newer than what we have locally. */
 async function pull(): Promise<'pulled' | 'current' | 'empty'> {
+  const supabase = await getSupabase()
   if (!supabase) return 'current'
   const { data, error } = await supabase
     .from(TABLE)
@@ -348,6 +352,7 @@ function schedulePush(): void {
  * we adopt the cloud unless THIS device (in edit mode) has newer offline edits.
  */
 async function reconcile(): Promise<void> {
+  const supabase = await getSupabase()
   if (!supabase) return
   setStatus('syncing')
   const { data, error } = await supabase
@@ -415,7 +420,9 @@ function registerHooks(): void {
 
 /* ── Realtime ──────────────────────────────────────────────────────────────── */
 
-function subscribeRealtime(): void {
+async function subscribeRealtime(): Promise<void> {
+  if (channel) return
+  const supabase = await getSupabase()
   if (!supabase || channel) return
   channel = supabase
     .channel('gt_state_sync')
@@ -444,6 +451,7 @@ function clearPassword(): void {
 export async function enterEditMode(
   password: string,
 ): Promise<{ ok: boolean; error?: string }> {
+  const supabase = await getSupabase()
   if (!supabase) return { ok: false, error: 'Editing is unavailable offline.' }
   const pw = password.trim()
   if (!pw) return { ok: false, error: 'Enter the code.' }
@@ -483,7 +491,7 @@ export function closeEditPrompt(): void {
 
 /** Retry a transient pull/push failure from the visible sync error control. */
 export async function retrySync(): Promise<void> {
-  if (!supabase) return
+  if (!isSupabaseConfigured) return
   if (dirty && editMode) await push()
   else await pull()
 }
@@ -520,7 +528,7 @@ async function applyRequestedPlanUpdate(): Promise<void> {
 export async function initSync(): Promise<void> {
   registerHooks()
 
-  if (!supabase) {
+  if (!isSupabaseConfigured) {
     // No cloud configured → plain offline app (everything is locally editable).
     editMode = true
     setStatus('offline')
@@ -540,7 +548,7 @@ export async function initSync(): Promise<void> {
     if (document.visibilityState === 'visible') void pullIfIdle()
   })
 
-  subscribeRealtime()
+  void subscribeRealtime()
   await reconcile()
   await applyRequestedPlanUpdate()
 }
