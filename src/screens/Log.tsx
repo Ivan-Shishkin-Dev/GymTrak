@@ -25,6 +25,7 @@ import { MoveButtons } from '@/components/MoveButtons'
 import { LoadEditor, RepsField } from '@/components/LoadEditor'
 import type { Exercise, LoadType, WorkoutSet } from '@/db/types'
 import { DiscardDialog } from '@/components/DiscardDialog'
+import { FocusSet, bareReps, type NextUp } from '@/components/FocusSet'
 
 type Group = { ex: Exercise; sets: WorkoutSet[] }
 
@@ -119,7 +120,25 @@ export function Log() {
   const activeSetId =
     groups.flatMap((g) => g.sets).find((s) => s.completedAt == null)?.id ?? null
   const focusedGroup = groups.find((g) => g.sets.some((s) => s.id === activeSetId))
-  const visibleActiveGroups = focusMode && focusedGroup ? [focusedGroup] : activeGroups
+  const visibleActiveGroups = activeGroups
+  const showFocus = focusMode && !editing
+  const orderedSets = groups.flatMap((g) => g.sets.map((st) => ({ st, ex: g.ex })))
+  const activeSet = orderedSets.find((o) => o.st.id === activeSetId)?.st ?? null
+  // the set after the current one, in workout order — previewed under the steppers
+  const nextUp: NextUp | null = (() => {
+    const pending = orderedSets.filter((o) => o.st.completedAt == null)
+    const after = pending[1]
+    if (!after || !focusedGroup) return null
+    return {
+      name: after.ex.name,
+      setNumber: groups.find((g) => g.ex.id === after.ex.id)!.sets.indexOf(after.st) + 1,
+      weight: after.st.weight,
+      reps: after.st.reps,
+      sameExercise: after.ex.id === focusedGroup.ex.id,
+    }
+  })()
+  const allDone = total > 0 && done === total
+  const showFooter = editMode && !editing && ((showFocus && activeSet != null) || done > 0)
 
   async function onToggle(id: string, exId: string) {
     if (!editMode || editing) return
@@ -168,6 +187,18 @@ export function Log() {
       parsed.add = (parsed.add ?? 0) + increment * direction
     }
     await updateSetLoad(st.id, formatLoad(parsed), st.reps)
+  }
+
+  async function adjustReps(st: WorkoutSet, direction: -1 | 1) {
+    const bare = bareReps(st.reps)
+    if (!/^\d+$/.test(bare)) return
+    await updateSetLoad(st.id, st.weight, `× ${Math.max(0, Number(bare) + direction)}`)
+  }
+
+  function editLoad(st: WorkoutSet, field: 'weight' | 'reps') {
+    if (!editMode) return
+    setEditingLoad({ id: st.id, field })
+    setLoadDraft(field === 'weight' ? st.weight : st.reps)
   }
 
   function cancelLoad() {
@@ -619,11 +650,11 @@ export function Log() {
           gap: 12,
         }}
       >
-        {!editing && activeGroups.length > 1 && (
+        {!editing && groups.length > 0 && (
           <div style={{ display: 'flex', gap: 6 }}>
             {([true, false] as const).map((focused) => (
               <button key={String(focused)} className="tap" onClick={() => setFocusMode(focused)} style={{ flex: 1, height: 36, borderRadius: 10, border: '1px solid var(--color-pill-border)', background: focusMode === focused ? 'var(--color-volt-tint)' : 'transparent', color: focusMode === focused ? 'var(--color-volt)' : 'var(--color-sub)', fontSize: 12.5, fontWeight: 650 }}>
-                {focused ? 'Current exercise' : 'Overview'}
+                {focused ? 'Current set' : 'Overview'}
               </button>
             ))}
           </div>
@@ -639,7 +670,42 @@ export function Log() {
         )}
 
         {/* Active exercises (not yet fully done) */}
-        {visibleActiveGroups.map((g) => renderCard(g, groups.indexOf(g), editing))}
+        {showFocus && focusedGroup && activeSet && (() => {
+          const ex = focusedGroup.ex
+          const loadType = ex.loadType ?? inferLoadType(activeSet.weight)
+          const isEditWeight = editingLoad?.id === activeSet.id && editingLoad.field === 'weight'
+          const isEditReps = editingLoad?.id === activeSet.id && editingLoad.field === 'reps'
+          return (
+            <FocusSet
+              ex={ex}
+              sets={focusedGroup.sets}
+              current={activeSet}
+              canEdit={editMode}
+              canStep={editMode && loadType !== 'free'}
+              weightEditor={isEditWeight ? (
+                <LoadEditor autoFocus value={loadDraft} loadType={loadType} onChange={setLoadDraft} onCommit={() => commitLoad(activeSet)} onCancel={cancelLoad} />
+              ) : null}
+              repsEditor={isEditReps ? (
+                <RepsField autoFocus value={loadDraft} onChange={setLoadDraft} onCommit={() => commitLoad(activeSet)} onCancel={cancelLoad} />
+              ) : null}
+              next={nextUp}
+              onStepLoad={(dir) => void adjustLoad(activeSet, ex, dir)}
+              onStepReps={(dir) => void adjustReps(activeSet, dir)}
+              onEditWeight={() => editLoad(activeSet, 'weight')}
+              onEditReps={() => editLoad(activeSet, 'reps')}
+              onChip={(st) => void onToggle(st.id, ex.id)}
+            />
+          )
+        })()}
+
+        {showFocus && allDone && (
+          <div className="card" style={{ borderRadius: 20, padding: '28px 20px', textAlign: 'center', display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div className="display" style={{ fontSize: 26, fontWeight: 700 }}>All {total} sets done</div>
+            <div style={{ fontSize: 13.5, color: 'var(--color-sub)' }}>Finish to save loads to the Plan for next time.</div>
+          </div>
+        )}
+
+        {!showFocus && visibleActiveGroups.map((g) => renderCard(g, groups.indexOf(g), editing))}
 
         {/* Add exercise — only while editing */}
         {editing && (
@@ -673,7 +739,7 @@ export function Log() {
         )}
 
         {/* Done pile — finished exercises drop here; tap to reopen and tweak */}
-        {doneGroups.length > 0 && (
+        {!showFocus && doneGroups.length > 0 && (
           <>
             <div
               style={{
@@ -749,13 +815,14 @@ export function Log() {
 
       {/* Rest timer — running countdown, or an idle "Start rest" button. Docks
           above the footer; carries the safe-area inset only when no footer follows. */}
+      {/* In the set view, "Done set" starts rest itself, so the idle Start-rest button is hidden */}
       <RestBar
-        canStart={editMode && !editing}
-        bottomInset={!(done > 0 && editMode && !editing)}
+        canStart={editMode && !editing && !showFocus}
+        bottomInset={!showFooter}
       />
 
-      {/* Footer — just the finish action once any set is done (editors only) */}
-      {done > 0 && editMode && !editing && (
+      {/* Footer — Done set (set view) and Finish. Finish stays secondary until every set is done. */}
+      {showFooter && (
         <div
           style={{
             borderTop: '1px solid var(--color-card-border)',
@@ -765,25 +832,33 @@ export function Log() {
             padding: `14px 20px calc(30px + env(safe-area-inset-bottom))`,
           }}
         >
-          <button
-            onClick={() => setConfirmFinish(true)}
-            className="tap press"
-            style={{
-              width: '100%',
-              height: 52,
-              borderRadius: 26,
-              background: 'var(--color-volt)',
-              color: 'var(--color-on-volt)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: 16,
-              fontWeight: 700,
-              border: 'none',
-            }}
-          >
-            Finish workout
-          </button>
+          {showFocus && activeSet && focusedGroup && (
+            <button
+              onClick={() => void onToggle(activeSet.id, focusedGroup.ex.id)}
+              className="tap press"
+              style={{ ...primaryButton, height: 60, borderRadius: 30, fontSize: 18 }}
+            >
+              ✓ Done set
+            </button>
+          )}
+          {done > 0 && (
+            <button
+              onClick={() => setConfirmFinish(true)}
+              className="tap press"
+              style={allDone ? primaryButton : {
+                ...primaryButton,
+                height: 44,
+                marginTop: showFocus && activeSet ? 10 : 0,
+                background: 'transparent',
+                color: 'var(--color-sub)',
+                border: '1px solid var(--color-pill-border)',
+                fontSize: 14,
+                fontWeight: 620,
+              }}
+            >
+              Finish workout
+            </button>
+          )}
         </div>
       )}
 
@@ -884,3 +959,17 @@ function QuickAdjust({ children, label, onClick }: { children: React.ReactNode; 
 
 const settingLabel: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, color: 'var(--color-sub)', fontSize: 11 }
 const settingField: React.CSSProperties = { width: '100%', boxSizing: 'border-box', height: 34, borderRadius: 8, border: '1px solid var(--color-pill-border)', background: 'var(--color-bg)', color: 'var(--color-text)', padding: '0 8px', fontSize: 13 }
+
+const primaryButton: React.CSSProperties = {
+  width: '100%',
+  height: 52,
+  borderRadius: 26,
+  background: 'var(--color-volt)',
+  color: 'var(--color-on-volt)',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  fontSize: 16,
+  fontWeight: 700,
+  border: 'none',
+}
